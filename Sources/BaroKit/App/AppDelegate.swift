@@ -65,6 +65,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             .store(in: &cancellables)
     }
 
+    public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
         coordinator.stop()
         idleReleaseTimer?.invalidate()
@@ -362,6 +366,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             defer: false
         )
         panel.isFloatingPanel = true
+        panel.isReleasedWhenClosed = false
         panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -458,9 +463,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     public func windowWillClose(_ notification: Notification) {
         guard let win = notification.object as? NSWindow else { return }
         if win === settingsWindow {
-            settingsWindow = nil
+            DispatchQueue.main.async { [weak self] in
+                if self?.settingsWindow === win {
+                    self?.settingsWindow = nil
+                }
+            }
         } else if win === aboutWindow {
-            aboutWindow = nil
+            DispatchQueue.main.async { [weak self] in
+                if self?.aboutWindow === win {
+                    self?.aboutWindow = nil
+                }
+            }
         }
     }
 
@@ -493,9 +506,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     // MARK: - Settings & About Windows
 
+    /// 供打开设置及单元测试验证关闭生命周期不触发过度释放崩溃
+    public func openSettingsWindowForTesting() -> NSWindow? {
+        openSettingsWindow()
+        return settingsWindow
+    }
+
     private func openSettingsWindow() {
         if let existing = settingsWindow {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApplication.shared.activate(ignoringOtherApps: true)
             existing.makeKeyAndOrderFront(nil)
             return
         }
@@ -505,18 +524,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         let window = NSWindow(contentViewController: hosting)
         window.title = BaroL10n.t("Baro 偏好设置", "Baro Preferences", lang: lang)
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.isReleasedWhenClosed = true
+        window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
 
         self.settingsWindow = window
-        NSApp.activate(ignoringOtherApps: true)
+        NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
     private func openAboutWindow() {
         if let existing = aboutWindow {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApplication.shared.activate(ignoringOtherApps: true)
             existing.makeKeyAndOrderFront(nil)
             return
         }
@@ -526,12 +545,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         let window = NSWindow(contentViewController: hosting)
         window.title = BaroL10n.t("关于 Baro", "About Baro", lang: lang)
         window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = true
+        window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
 
         self.aboutWindow = window
-        NSApp.activate(ignoringOtherApps: true)
+        NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 }

@@ -375,6 +375,24 @@ final class BaroCoreTests: XCTestCase {
         XCTAssertTrue(exported.contains("CaffeineApp"))
     }
 
+    /// 回归：关闭偏好设置窗口绝不能触发 NSWindow 过度释放崩溃（isReleasedWhenClosed 必须为 false）
+    @MainActor
+    func testClosingSettingsWindowDoesNotCrashOrOverRelease() throws {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        XCTAssertFalse(delegate.applicationShouldTerminateAfterLastWindowClosed(app))
+
+        let win = try XCTUnwrap(delegate.openSettingsWindowForTesting())
+        XCTAssertFalse(win.isReleasedWhenClosed)
+        win.close()
+
+        let drained = expectation(description: "drain main queue after window close")
+        DispatchQueue.main.async {
+            drained.fulfill()
+        }
+        wait(for: [drained], timeout: 2.0)
+    }
+
     @MainActor
     func testMenuBarStylesRenderValidBitmapsAndSignatures() throws {
         let suiteName = "com.baro.tests.menubar.render"
