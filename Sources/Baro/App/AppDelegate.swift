@@ -18,11 +18,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private lazy var coordinator = SamplingCoordinator(settings: settings)
 
     private var statusItem: NSStatusItem!
-    private var statusHostingView: NSHostingView<MenuBarContentView>!
+    private var statusCanvasView: StatusBarCanvasView!
     private var dashboardPanel: BaroFloatingPanel?
     private var dashboardHostingController: NSHostingController<DashboardPopoverView>?
     private var settingsWindow: NSWindow?
+    private var aboutWindow: NSWindow?
 
+    private var idleReleaseTimer: Timer?
     private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
@@ -30,42 +32,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
+
+        coordinator.onMenuBarUpdate = { [weak self] data in
+            self?.updateStatusCanvas(with: data)
+        }
         coordinator.start()
 
         settings.objectWillChange
             .receive(on: RunLoop.main)
-            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+            .debounce(for: .milliseconds(80), scheduler: RunLoop.main)
             .sink { [weak self] _ in
-                self?.refreshStatusItemWidth()
+                guard let self else { return }
+                self.updateStatusCanvas(with: self.coordinator.currentMenuBarRenderData())
             }
             .store(in: &cancellables)
-
-        coordinator.$healthSummary
-            .map(\.level)
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.refreshStatusItemWidth()
-            }
-            .store(in: &cancellables)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.refreshStatusItemWidth()
-        }
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
         coordinator.stop()
+        idleReleaseTimer?.invalidate()
         removeMonitors()
     }
 
-    // MARK: - Single NSStatusItem
+    // MARK: - Pure AppKit Single NSStatusItem
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let menuView = MenuBarContentView(coordinator: coordinator, settings: settings)
-        statusHostingView = NSHostingView(rootView: menuView)
-        statusHostingView.frame = NSRect(x: 0, y: 0, width: 108, height: 22)
+        statusCanvasView = StatusBarCanvasView(frame: NSRect(x: 0, y: 0, width: 132, height: 22))
 
         if let button = statusItem.button {
             button.title = ""
@@ -73,19 +66,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.addSubview(statusHostingView)
-            refreshStatusItemWidth()
+            button.addSubview(statusCanvasView)
+            updateStatusCanvas(with: coordinator.currentMenuBarRenderData())
         }
     }
 
-    private func refreshStatusItemWidth() {
-        guard let button = statusItem.button, let hosting = statusHostingView else { return }
-        hosting.layoutSubtreeIfNeeded()
-        let fitting = hosting.fittingSize
-        let targetWidth = max(32, ceil(fitting.width) + 4)
+    private func updateStatusCanvas(with data: MenuBarRenderData) {
+        guard let button = statusItem.button, let canvas = statusCanvasView else { return }
+        let targetWidth = canvas.configure(data: data, settings: settings)
         let targetHeight = max(22, button.bounds.height)
-        if abs(targetWidth - statusItem.length) >= 2 || statusItem.length <= 0 {
-            hosting.frame = NSRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
+        if abs(targetWidth - statusItem.length) >= 0.5 || abs(canvas.frame.height - targetHeight) >= 0.5 {
+            canvas.frame = NSRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
             button.frame = NSRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
             statusItem.length = targetWidth
         }
@@ -100,18 +91,50 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     private func showContextMenu() {
+        let lang = settings.resolvedLanguage
         let menu = NSMenu()
-        let openItem = NSMenuItem(title: "打开晴雨表仪表盘", action: #selector(openDashboardFromMenu), keyEquivalent: "")
+
+        let openItem = NSMenuItem(
+            title: BaroL10n.t("打开晴雨表仪表盘", "Open Baro Dashboard", lang: lang),
+            action: #selector(openDashboardFromMenu),
+            keyEquivalent: ""
+        )
         openItem.target = self
         menu.addItem(openItem)
 
-        let settingsItem = NSMenuItem(title: "偏好设置…", action: #selector(openSettingsFromMenu), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(
+            title: BaroL10n.t("偏好设置…", "Preferences…", lang: lang),
+            action: #selector(openSettingsFromMenu),
+            keyEquivalent: ","
+        )
         settingsItem.target = self
         menu.addItem(settingsItem)
 
         menu.addItem(.separator())
 
-        let quitItem = NSMenuItem(title: "退出 Baro", action: #selector(quitApp), keyEquivalent: "q")
+        let guideItem = NSMenuItem(
+            title: BaroL10n.t("使用指南", "User Guide", lang: lang),
+            action: #selector(openUserGuideFromMenu),
+            keyEquivalent: ""
+        )
+        guideItem.target = self
+        menu.addItem(guideItem)
+
+        let aboutItem = NSMenuItem(
+            title: BaroL10n.t("关于 Baro", "About Baro", lang: lang),
+            action: #selector(openAboutFromMenu),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(
+            title: BaroL10n.t("退出 Baro", "Quit Baro", lang: lang),
+            action: #selector(quitApp),
+            keyEquivalent: "q"
+        )
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -130,11 +153,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         openSettingsWindow()
     }
 
+    @objc private func openUserGuideFromMenu() {
+        let lang = settings.resolvedLanguage
+        let urlStr = lang == .zhHans
+            ? "https://github.com/seaskyx2/Baro/blob/main/docs/USER_GUIDE.md"
+            : "https://github.com/seaskyx2/Baro/blob/main/docs/USER_GUIDE.en.md"
+        if let url = URL(string: urlStr) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openAboutFromMenu() {
+        openAboutWindow()
+    }
+
     @objc private func quitApp() {
         NSApp.terminate(nil)
     }
 
-    // MARK: - Floating Liquid Glass Panel
+    // MARK: - Floating Liquid Glass Panel + Idle Memory Release
 
     private func toggleDashboardPanel() {
         if let panel = dashboardPanel, panel.isVisible {
@@ -187,6 +224,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     private func showDashboardPanel() {
+        idleReleaseTimer?.invalidate()
+        idleReleaseTimer = nil
+
         let panel = ensureDashboardPanel()
         coordinator.setPanelOpen(true)
 
@@ -202,6 +242,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         dashboardPanel?.orderOut(nil)
         coordinator.setPanelOpen(false)
         removeMonitors()
+        scheduleIdlePanelRelease()
+    }
+
+    private func scheduleIdlePanelRelease() {
+        idleReleaseTimer?.invalidate()
+        let timer = Timer(timeInterval: 20.0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.dashboardPanel?.isVisible != true else { return }
+                self.dashboardPanel?.contentViewController = nil
+                self.dashboardPanel?.delegate = nil
+                self.dashboardPanel = nil
+                self.dashboardHostingController = nil
+            }
+        }
+        timer.tolerance = 5.0
+        RunLoop.main.add(timer, forMode: .common)
+        idleReleaseTimer = timer
     }
 
     private func positionPanelBelowStatusItem(_ panel: NSPanel) {
@@ -246,6 +303,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
     }
 
+    public func windowWillClose(_ notification: Notification) {
+        guard let win = notification.object as? NSWindow else { return }
+        if win === settingsWindow {
+            settingsWindow = nil
+        } else if win === aboutWindow {
+            aboutWindow = nil
+        }
+    }
+
     private func installDismissMonitors() {
         removeMonitors()
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -254,7 +320,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             }
         }
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { // Escape
+            if event.keyCode == 53 {
                 self?.closeDashboardPanel()
                 return nil
             }
@@ -273,7 +339,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
     }
 
-    // MARK: - Settings Window
+    // MARK: - Settings & About Windows
 
     private func openSettingsWindow() {
         if let existing = settingsWindow {
@@ -282,14 +348,37 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             return
         }
 
+        let lang = settings.resolvedLanguage
         let hosting = NSHostingController(rootView: SettingsView(settings: settings))
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Baro 偏好设置"
+        window.title = BaroL10n.t("Baro 偏好设置", "Baro Preferences", lang: lang)
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.isReleasedWhenClosed = false
+        window.isReleasedWhenClosed = true
+        window.delegate = self
         window.center()
 
         self.settingsWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func openAboutWindow() {
+        if let existing = aboutWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let lang = settings.resolvedLanguage
+        let hosting = NSHostingController(rootView: AboutBaroView(settings: settings))
+        let window = NSWindow(contentViewController: hosting)
+        window.title = BaroL10n.t("关于 Baro", "About Baro", lang: lang)
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = true
+        window.delegate = self
+        window.center()
+
+        self.aboutWindow = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }

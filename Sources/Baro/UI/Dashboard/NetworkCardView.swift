@@ -5,21 +5,24 @@ public struct NetworkCardView: View {
     public let network: NetworkSnapshot
     public let downloadHistory: [Double]
     public let uploadHistory: [Double]
+    public let lang: ResolvedLanguage
 
     public init(
         network: NetworkSnapshot,
         downloadHistory: [Double],
-        uploadHistory: [Double]
+        uploadHistory: [Double],
+        lang: ResolvedLanguage
     ) {
         self.network = network
         self.downloadHistory = downloadHistory
         self.uploadHistory = uploadHistory
+        self.lang = lang
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
-                Label("网络吞吐", systemImage: "network")
+                Label(BaroL10n.t("网络吞吐", "Network", lang: lang), systemImage: "network")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -53,7 +56,7 @@ public struct NetworkCardView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
-                Text("累计 \(ByteFormatter.diskSize(network.sessionDownloadBytes + network.sessionUploadBytes))")
+                Text(BaroL10n.t("累计 ", "Total ", lang: lang) + ByteFormatter.diskSize(network.sessionDownloadBytes + network.sessionUploadBytes))
                     .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
             }

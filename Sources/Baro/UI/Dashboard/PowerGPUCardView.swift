@@ -5,6 +5,7 @@ public struct PowerGPUCardView: View {
     public let power: AppleSiliconPowerSnapshot
     public let thermal: ThermalFanSnapshot
     public let powerHistory: [Double]
+    public let lang: ResolvedLanguage
     public let isExpanded: Bool
     public let onToggleExpand: () -> Void
 
@@ -12,12 +13,14 @@ public struct PowerGPUCardView: View {
         power: AppleSiliconPowerSnapshot,
         thermal: ThermalFanSnapshot,
         powerHistory: [Double],
+        lang: ResolvedLanguage,
         isExpanded: Bool,
         onToggleExpand: @escaping () -> Void
     ) {
         self.power = power
         self.thermal = thermal
         self.powerHistory = powerHistory
+        self.lang = lang
         self.isExpanded = isExpanded
         self.onToggleExpand = onToggleExpand
     }
@@ -25,7 +28,7 @@ public struct PowerGPUCardView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
-                Label("功耗 & GPU", systemImage: "bolt.fill")
+                Label(BaroL10n.t("功耗 & GPU", "Power & GPU", lang: lang), systemImage: "bolt.fill")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -38,7 +41,7 @@ public struct PowerGPUCardView: View {
                 miniMetric(title: "GPU", value: power.isAvailable ? "\(Int(power.gpuUsagePercent.rounded()))%" : "--")
                 Spacer()
                 if let fan = thermal.fans.first {
-                    miniMetric(title: "风扇", value: "\(fan.currentRPM) RPM")
+                    miniMetric(title: BaroL10n.t("风扇", "Fan", lang: lang), value: "\(fan.currentRPM) RPM")
                 } else if let temp = thermal.primaryTemperature {
                     miniMetric(title: "SoC", value: "\(Int(temp.rounded()))°C")
                 }
@@ -61,14 +64,22 @@ public struct PowerGPUCardView: View {
                         }
                     } else {
                         HStack {
-                            Text(String(format: "GPU %.2fW · 系统实测", power.gpuWatts))
+                            Text(BaroL10n.t(
+                                String(format: "GPU %.2fW · 系统实测", power.gpuWatts),
+                                String(format: "GPU %.2fW · System Total", power.gpuWatts),
+                                lang: lang
+                            ))
                                 .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                                 .foregroundStyle(.secondary)
                             Spacer()
                         }
                         if let temp = thermal.primaryTemperature {
                             HStack {
-                                Text(String(format: "SoC %.1f°C · 传感器 %d 路", temp, thermal.sensors.count))
+                                Text(BaroL10n.t(
+                                    String(format: "SoC %.1f°C · 传感器 %d 路", temp, thermal.sensors.count),
+                                    String(format: "SoC %.1f°C · %d Sensors", temp, thermal.sensors.count),
+                                    lang: lang
+                                ))
                                     .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                                     .foregroundStyle(.secondary)
                                 Spacer()
@@ -76,7 +87,7 @@ public struct PowerGPUCardView: View {
                         }
                     }
                 } else {
-                    Text("仅温度/风扇只读遥测")
+                    Text(BaroL10n.t("仅温度/风扇只读遥测", "Thermal / Fan Telemetry", lang: lang))
                         .font(.system(size: 9.5, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -114,13 +125,13 @@ public struct PowerGPUCardView: View {
 
     private var sensorDrawer: some View {
         VStack(alignment: .leading, spacing: 3.5) {
-            Text("只读热敏与风扇传感器")
+            Text(BaroL10n.t("只读热敏与风扇传感器", "Read-Only Thermal & Fan Sensors", lang: lang))
                 .font(.system(size: 9.5, weight: .semibold))
                 .foregroundStyle(.secondary)
 
             ForEach(thermal.fans) { fan in
                 HStack {
-                    Text("风扇 #\(fan.id)")
+                    Text(BaroL10n.t("风扇 #\(fan.id)", "Fan #\(fan.id)", lang: lang))
                         .font(.system(size: 9.5))
                         .foregroundStyle(.secondary)
                     Spacer()

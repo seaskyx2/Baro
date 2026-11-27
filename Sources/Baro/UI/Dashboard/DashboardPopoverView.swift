@@ -27,7 +27,7 @@ public struct DashboardPopoverView: View {
     public var body: some View {
         Group {
             if coordinator.isPanelOpen {
-                dashboardBody
+                dashboardBody(lang: settings.resolvedLanguage)
             } else {
                 Color.clear
                     .frame(width: 364, height: 10)
@@ -35,9 +35,9 @@ public struct DashboardPopoverView: View {
         }
     }
 
-    private var dashboardBody: some View {
+    private func dashboardBody(lang: ResolvedLanguage) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            headerSection
+            headerSection(lang: lang)
 
             if settings.showCPUCard || settings.showMemoryCard {
                 twoColumnGrid {
@@ -46,6 +46,7 @@ public struct DashboardPopoverView: View {
                             cpu: coordinator.snapshot.cpu,
                             history: coordinator.cpuHistory,
                             temperature: coordinator.snapshot.thermalFan.cpuTemperature ?? coordinator.snapshot.thermalFan.socTemperature,
+                            lang: lang,
                             isExpanded: expandedCPU,
                             onToggleExpand: {
                                 withAnimation(.snappy(duration: 0.22)) {
@@ -60,6 +61,7 @@ public struct DashboardPopoverView: View {
                         MemoryCardView(
                             memory: coordinator.snapshot.memory,
                             history: coordinator.memoryHistory,
+                            lang: lang,
                             isExpanded: expandedMemory,
                             onToggleExpand: {
                                 withAnimation(.snappy(duration: 0.22)) {
@@ -79,6 +81,7 @@ public struct DashboardPopoverView: View {
                             power: coordinator.snapshot.siliconPower,
                             thermal: coordinator.snapshot.thermalFan,
                             powerHistory: coordinator.powerHistory,
+                            lang: lang,
                             isExpanded: expandedPower,
                             onToggleExpand: {
                                 withAnimation(.snappy(duration: 0.22)) {
@@ -93,7 +96,8 @@ public struct DashboardPopoverView: View {
                         NetworkCardView(
                             network: coordinator.snapshot.network,
                             downloadHistory: coordinator.downloadHistory,
-                            uploadHistory: coordinator.uploadHistory
+                            uploadHistory: coordinator.uploadHistory,
+                            lang: lang
                         )
                     }
                 }
@@ -104,6 +108,7 @@ public struct DashboardPopoverView: View {
                     if settings.showDiskCard {
                         DiskCardView(
                             disk: coordinator.snapshot.disk,
+                            lang: lang,
                             isExpanded: expandedDisk,
                             onToggleExpand: {
                                 withAnimation(.snappy(duration: 0.22)) {
@@ -117,7 +122,8 @@ public struct DashboardPopoverView: View {
                     if settings.showBatteryPowerCard {
                         BatteryPowerCardView(
                             batteryPower: coordinator.snapshot.batteryPower,
-                            previewLaptopMode: settings.previewLaptopBatteryOnDesktop
+                            previewLaptopMode: settings.previewLaptopBatteryOnDesktop,
+                            lang: lang
                         )
                     }
                 }
@@ -126,11 +132,13 @@ public struct DashboardPopoverView: View {
             if settings.showTopAppsSection {
                 TopAppsSectionView(
                     topCPUApps: coordinator.snapshot.topCPUApps,
-                    topMemoryApps: coordinator.snapshot.topMemoryApps
+                    topMemoryApps: coordinator.snapshot.topMemoryApps,
+                    lang: lang,
+                    preferredModeRaw: $settings.preferredTopAppsMode
                 )
             }
 
-            footerSection
+            footerSection(lang: lang)
         }
         .padding(12)
         .frame(width: 364)
@@ -141,7 +149,7 @@ public struct DashboardPopoverView: View {
         .onChange(of: expandedDisk) { _, _ in onLayoutChanged() }
     }
 
-    private var headerSection: some View {
+    private func headerSection(lang: ResolvedLanguage) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Image(systemName: "barometer")
@@ -166,7 +174,7 @@ public struct DashboardPopoverView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("偏好设置")
+                .help(BaroL10n.t("偏好设置", "Preferences", lang: lang))
             }
 
             HStack(spacing: 5) {
@@ -185,9 +193,9 @@ public struct DashboardPopoverView: View {
         }
     }
 
-    private var footerSection: some View {
+    private func footerSection(lang: ResolvedLanguage) -> some View {
         HStack {
-            Text("Baro 晴雨表 · 纯只读零入侵")
+            Text(BaroL10n.t("Baro 晴雨表 · 纯只读零入侵", "Baro · Read-Only, Zero Intrusion", lang: lang))
                 .font(.system(size: 9.5, weight: .medium))
                 .foregroundStyle(.tertiary)
             Spacer()

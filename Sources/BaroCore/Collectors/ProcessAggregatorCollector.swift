@@ -23,11 +23,13 @@ public struct RawProcessSample: Sendable, Equatable {
     }
 }
 
-/// 仅在下拉面板展开（热态）时触发：通过 libproc 采集进程资源并按最外层 .app 归并
+/// 仅在下拉面板展开（热态）或呼吸点高压检测时触发：带 PID 路径与 Bundle 元数据缓存，大幅压低 CPU 占用
 public final class ProcessAggregatorCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var previousCPUNanosByPID: [Int32: UInt64] = [:]
     private var previousTimestamp: Date?
+    private var pidPathCache: [Int32: (path: String, fallbackName: String)] = [:]
+    private var bundleMetaCache: [String: (name: String, bundleId: String?)] = [:]
     private let timebaseNumer: UInt64
     private let timebaseDenom: UInt64
 
@@ -42,6 +44,7 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
         lock.lock()
         previousCPUNanosByPID.removeAll()
         previousTimestamp = nil
+        pidPathCache.removeAll()
         lock.unlock()
     }
 
@@ -66,6 +69,9 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
         var nextCPUNanos: [Int32: UInt64] = [:]
         nextCPUNanos.reserveCapacity(pidCount)
 
+        var alivePIDs = Set<Int32>()
+        alivePIDs.reserveCapacity(pidCount)
+
         var rawSamples: [RawProcessSample] = []
         rawSamples.reserveCapacity(pidCount)
 
@@ -77,6 +83,8 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
             let taskInfoSize = Int32(MemoryLayout<proc_taskinfo>.stride)
             let gotTask = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &taskInfo, taskInfoSize)
             guard gotTask == taskInfoSize else { continue }
+
+            alivePIDs.insert(pid)
 
             let totalTicks = taskInfo.pti_total_user &+ taskInfo.pti_total_system
             let totalNanos = (totalTicks / timebaseDenom) * timebaseNumer
@@ -98,24 +106,48 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
                 ? rusage.ri_phys_footprint
                 : UInt64(taskInfo.pti_resident_size)
 
-            let path = readProcessPath(pid: pid)
-            let fallbackName = path.isEmpty ? "PID \(pid)" : URL(fileURLWithPath: path).lastPathComponent
+            let cachedInfo: (path: String, fallbackName: String)
+            if let hit = pidPathCache[pid] {
+                cachedInfo = hit
+            } else {
+                let path = readProcessPath(pid: pid)
+                let fallback = path.isEmpty ? "PID \(pid)" : URL(fileURLWithPath: path).lastPathComponent
+                let entry = (path: path, fallbackName: fallback)
+                pidPathCache[pid] = entry
+                cachedInfo = entry
+            }
 
             rawSamples.append(
                 RawProcessSample(
                     pid: pid,
-                    executablePath: path,
-                    fallbackName: fallbackName,
+                    executablePath: cachedInfo.path,
+                    fallbackName: cachedInfo.fallbackName,
                     cpuPercent: cpuPercent,
                     memoryBytes: memoryBytes
                 )
             )
         }
 
+        // 淘汰已退出进程的缓存，保持内存零增长
+        if pidPathCache.count > alivePIDs.count + 32 {
+            pidPathCache = pidPathCache.filter { alivePIDs.contains($0.key) }
+        }
+        if bundleMetaCache.count > 256 {
+            bundleMetaCache.removeAll()
+        }
+
         previousCPUNanosByPID = nextCPUNanos
         previousTimestamp = now
 
-        let aggregated = Self.aggregateProcesses(rawSamples)
+        let aggregated = Self.aggregateProcesses(rawSamples) { appPath in
+            if let cached = self.bundleMetaCache[appPath] {
+                return cached
+            }
+            let resolved = Self.defaultBundleResolver(appPath)
+            self.bundleMetaCache[appPath] = resolved
+            return resolved
+        }
+
         let topCPU = Array(aggregated.sorted { $0.cpuPercent > $1.cpuPercent }.prefix(limit))
         let topMemory = Array(aggregated.sorted { $0.memoryBytes > $1.memoryBytes }.prefix(limit))
         return (topCPU, topMemory)

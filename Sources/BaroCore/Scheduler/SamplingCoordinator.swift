@@ -3,7 +3,35 @@ import Combine
 import Foundation
 @preconcurrency import UserNotifications
 
-public struct CollectorEngine: Sendable {
+public struct MenuBarRenderData: Sendable, Equatable {
+    public var cpuPercent: Double
+    public var memoryPercent: Double
+    public var memoryPressure: MemoryPressureLevel
+    public var uploadBytesPerSec: Double
+    public var downloadBytesPerSec: Double
+    public var temperatureCelsius: Double?
+    public var packageWatts: Double
+    public var isPowerAvailable: Bool
+    public var healthLevel: HealthLevel
+    public var topCPUAppPath: String?
+    public var cpuSparklinePoints: [Double]
+
+    public static let empty = MenuBarRenderData(
+        cpuPercent: 0,
+        memoryPercent: 0,
+        memoryPressure: .normal,
+        uploadBytesPerSec: 0,
+        downloadBytesPerSec: 0,
+        temperatureCelsius: nil,
+        packageWatts: 0,
+        isPowerAvailable: false,
+        healthLevel: .calm,
+        topCPUAppPath: nil,
+        cpuSparklinePoints: []
+    )
+}
+
+public final class CollectorEngine: @unchecked Sendable {
     public let cpu = CPUCollector()
     public let memory = MemoryCollector()
     public let network = NetworkCollector()
@@ -13,6 +41,16 @@ public struct CollectorEngine: Sendable {
     public let thermalFan = ThermalFanCollector()
     public let processAggregator = ProcessAggregatorCollector()
 
+    private let throttleLock = NSLock()
+    private var lastDiskSampleAt: Date?
+    private var cachedDiskSnapshot: DiskSnapshot = .empty
+    private var lastBatterySampleAt: Date?
+    private var cachedBatterySnapshot: BatteryPowerSnapshot = .empty
+    private var lastProcessSampleAt: Date?
+    private var cachedTopCPU: [AggregatedAppUsage] = []
+    private var cachedTopMemory: [AggregatedAppUsage] = []
+    private var processSampleCountInHot = 0
+
     public init() {}
 
     public func resetAllBaselines() {
@@ -21,6 +59,21 @@ public struct CollectorEngine: Sendable {
         disk.resetBaseline()
         siliconPower.resetBaseline()
         processAggregator.resetBaseline()
+
+        throttleLock.lock()
+        lastDiskSampleAt = nil
+        lastBatterySampleAt = nil
+        lastProcessSampleAt = nil
+        processSampleCountInHot = 0
+        throttleLock.unlock()
+    }
+
+    public func resetHotProcessThrottle() {
+        processAggregator.resetBaseline()
+        throttleLock.lock()
+        lastProcessSampleAt = nil
+        processSampleCountInHot = 0
+        throttleLock.unlock()
     }
 
     public func sampleCold(
@@ -53,7 +106,7 @@ public struct CollectorEngine: Sendable {
                 if let smcWatts = thermalFan.readSystemPowerWatts() {
                     powerSnap.packageWatts = smcWatts
                 } else {
-                    let batSnap = batteryPower.sample()
+                    let batSnap = cachedOrFreshBattery(minInterval: 10.0)
                     if !batSnap.hasInternalBattery && batSnap.powerWatts > 0 {
                         powerSnap.packageWatts = batSnap.powerWatts
                     }
@@ -73,16 +126,19 @@ public struct CollectorEngine: Sendable {
         includeBattery: Bool = true,
         includeSiliconPower: Bool = true,
         includeThermal: Bool = true,
-        includeProcesses: Bool = true
+        includeProcesses: Bool = true,
+        bypassThrottle: Bool = false
     ) -> SystemSnapshot {
         let cpuSnap = includeCPU ? cpu.sample() : .empty
         let memSnap = includeMemory ? memory.sample() : .empty
         let netSnap = includeNetwork ? network.sample() : .empty
-        let diskSnap = includeDisk ? disk.sample() : .empty
-        let batSnap = includeBattery ? batteryPower.sample() : .empty
+        let diskSnap = includeDisk ? (bypassThrottle ? disk.sample() : cachedOrFreshDisk(minInterval: 4.0)) : .empty
+        let batSnap = includeBattery ? (bypassThrottle ? batteryPower.sample() : cachedOrFreshBattery(minInterval: 8.0)) : .empty
         var powerSnap = includeSiliconPower ? siliconPower.sample() : .empty
         let thermalSnap = includeThermal ? thermalFan.sample() : .empty
-        let procs = includeProcesses ? processAggregator.sample(limit: 5) : (topCPU: [], topMemory: [])
+        let procs = includeProcesses
+            ? (bypassThrottle ? processAggregator.sample(limit: 5) : cachedOrFreshProcesses(minInterval: 3.0))
+            : (topCPU: [], topMemory: [])
 
         if includeSiliconPower && powerSnap.cpuWatts == 0 && powerSnap.aneWatts == 0 && powerSnap.dramWatts == 0 {
             if let smcWatts = thermalFan.readSystemPowerWatts() {
@@ -107,6 +163,65 @@ public struct CollectorEngine: Sendable {
             topMemoryApps: procs.topMemory
         )
     }
+
+    private func cachedOrFreshDisk(minInterval: TimeInterval) -> DiskSnapshot {
+        let now = Date()
+        throttleLock.lock()
+        let last = lastDiskSampleAt
+        let cached = cachedDiskSnapshot
+        throttleLock.unlock()
+
+        if let last, now.timeIntervalSince(last) < minInterval {
+            return cached
+        }
+        let fresh = disk.sample()
+        throttleLock.lock()
+        lastDiskSampleAt = now
+        cachedDiskSnapshot = fresh
+        throttleLock.unlock()
+        return fresh
+    }
+
+    private func cachedOrFreshBattery(minInterval: TimeInterval) -> BatteryPowerSnapshot {
+        let now = Date()
+        throttleLock.lock()
+        let last = lastBatterySampleAt
+        let cached = cachedBatterySnapshot
+        throttleLock.unlock()
+
+        if let last, now.timeIntervalSince(last) < minInterval {
+            return cached
+        }
+        let fresh = batteryPower.sample()
+        throttleLock.lock()
+        lastBatterySampleAt = now
+        cachedBatterySnapshot = fresh
+        throttleLock.unlock()
+        return fresh
+    }
+
+    private func cachedOrFreshProcesses(minInterval: TimeInterval) -> (topCPU: [AggregatedAppUsage], topMemory: [AggregatedAppUsage]) {
+        let now = Date()
+        throttleLock.lock()
+        let last = lastProcessSampleAt
+        let countInHot = processSampleCountInHot
+        let cached = (cachedTopCPU, cachedTopMemory)
+        throttleLock.unlock()
+
+        // 前两轮（建立基准 + 首次出 CPU 差分）立即采样，后续按 minInterval 节流降低扫描开销
+        if countInHot >= 2, let last, now.timeIntervalSince(last) < minInterval {
+            return cached
+        }
+
+        let fresh = processAggregator.sample(limit: 5)
+        throttleLock.lock()
+        lastProcessSampleAt = now
+        cachedTopCPU = fresh.topCPU
+        cachedTopMemory = fresh.topMemory
+        processSampleCountInHot = countInHot + 1
+        throttleLock.unlock()
+        return fresh
+    }
 }
 
 @MainActor
@@ -126,6 +241,12 @@ public final class SamplingCoordinator: ObservableObject {
     @Published public private(set) var powerHistory: [Double] = []
     @Published public private(set) var temperatureHistory: [Double] = []
 
+    /// 供纯 AppKit 菜单栏视图使用：冷态时直接走轻回调，避免触发 SwiftUI ObservableObject 广播
+    public var onMenuBarUpdate: ((MenuBarRenderData) -> Void)?
+
+    private var latestSnapshot: SystemSnapshot = .empty
+    private var latestHealthSummary: HealthSummary = .initial
+
     private var cpuBuffer = RingBuffer<Double>(capacity: 60)
     private var memoryBuffer = RingBuffer<Double>(capacity: 60)
     private var downloadBuffer = RingBuffer<Double>(capacity: 60)
@@ -143,6 +264,11 @@ public final class SamplingCoordinator: ObservableObject {
     public init(settings: BaroSettings = BaroSettings()) {
         self.settings = settings
         self.hostInfo = HostInfoReader.readStaticInfo()
+        self.latestHealthSummary = HealthSummary(
+            level: .calm,
+            message: BaroL10n.t("正在读取系统晴雨…", "Reading system vitals…", lang: settings.resolvedLanguage)
+        )
+        self.healthSummary = self.latestHealthSummary
         registerSleepNotifications()
         observeSettingsChanges()
     }
@@ -156,14 +282,19 @@ public final class SamplingCoordinator: ObservableObject {
         timer = nil
     }
 
+    public func currentMenuBarRenderData() -> MenuBarRenderData {
+        makeMenuBarRenderData(from: latestSnapshot, health: latestHealthSummary)
+    }
+
     public func setPanelOpen(_ open: Bool) {
         guard isPanelOpen != open else { return }
         isPanelOpen = open
         if open {
+            snapshot = latestSnapshot
+            healthSummary = latestHealthSummary
             syncHistoryBuffersToPublished()
         } else {
-            // 退出热态时重置进程基线，避免下次打开间隔过长出现跨小时残留基准
-            engine.processAggregator.resetBaseline()
+            engine.resetHotProcessThrottle()
         }
         scheduleNextCycle(immediate: true)
     }
@@ -179,9 +310,21 @@ public final class SamplingCoordinator: ObservableObject {
 
     private func observeSettingsChanges() {
         settings.objectWillChange
+            .receive(on: RunLoop.main)
             .debounce(for: .milliseconds(150), scheduler: RunLoop.main)
             .sink { [weak self] _ in
-                self?.scheduleNextCycle(immediate: false)
+                guard let self else { return }
+                self.latestHealthSummary = HealthAnalyzer.analyze(
+                    snapshot: self.latestSnapshot,
+                    topCPUApp: self.latestSnapshot.topCPUApps.first,
+                    topMemoryApp: self.latestSnapshot.topMemoryApps.first,
+                    language: self.settings.resolvedLanguage
+                )
+                if self.isPanelOpen {
+                    self.healthSummary = self.latestHealthSummary
+                }
+                self.onMenuBarUpdate?(self.currentMenuBarRenderData())
+                self.scheduleNextCycle(immediate: false)
             }
             .store(in: &settingsCancellables)
     }
@@ -251,7 +394,6 @@ public final class SamplingCoordinator: ObservableObject {
                 self?.triggerSample()
             }
         }
-        // 允许系统合并唤醒，极致省电
         newTimer.tolerance = interval * 0.25
         RunLoop.main.add(newTimer, forMode: .common)
         timer = newTimer
@@ -262,7 +404,7 @@ public final class SamplingCoordinator: ObservableObject {
         isSamplingInFlight = true
 
         let hot = isPanelOpen
-        let prev = snapshot
+        let prev = latestSnapshot
         let needCPU = hot || settings.showMenuCPU || settings.menuBarStyle != .compactDualRow
         let needMemory = hot || settings.showMenuMemory || settings.menuBarStyle == .sparkline
         let needNetwork = hot || settings.showMenuNetwork
@@ -307,7 +449,7 @@ public final class SamplingCoordinator: ObservableObject {
     }
 
     private func applySnapshot(_ next: SystemSnapshot, isHot: Bool) {
-        snapshot = next
+        latestSnapshot = next
 
         cpuBuffer.append(next.cpu.totalUsagePercent)
         memoryBuffer.append(next.memory.usedPercent)
@@ -321,39 +463,71 @@ public final class SamplingCoordinator: ObservableObject {
             temperatureBuffer.append(temp)
         }
 
-        if isHot {
-            syncHistoryBuffersToPublished()
-        } else if settings.menuBarStyle == .sparkline {
-            cpuHistory = cpuBuffer.values
-        }
-
-        healthSummary = HealthAnalyzer.analyze(
+        let summary = HealthAnalyzer.analyze(
             snapshot: next,
             topCPUApp: next.topCPUApps.first,
-            topMemoryApp: next.topMemoryApps.first
+            topMemoryApp: next.topMemoryApps.first,
+            language: settings.resolvedLanguage
         )
+        latestHealthSummary = summary
+
+        if isHot {
+            snapshot = next
+            healthSummary = summary
+            syncHistoryBuffersToPublished()
+        }
+
+        onMenuBarUpdate?(makeMenuBarRenderData(from: next, health: summary))
 
         if isHot || settings.enableThermalAlert || settings.enableMemoryAlert || settings.enableLowBatteryAlert {
             evaluateAlertsIfEnabled(next)
         }
     }
 
+    private func makeMenuBarRenderData(from snap: SystemSnapshot, health: HealthSummary) -> MenuBarRenderData {
+        MenuBarRenderData(
+            cpuPercent: snap.cpu.totalUsagePercent,
+            memoryPercent: snap.memory.usedPercent,
+            memoryPressure: snap.memory.pressure,
+            uploadBytesPerSec: snap.network.uploadBytesPerSec,
+            downloadBytesPerSec: snap.network.downloadBytesPerSec,
+            temperatureCelsius: snap.thermalFan.primaryTemperature,
+            packageWatts: snap.siliconPower.packageWatts,
+            isPowerAvailable: snap.siliconPower.isAvailable,
+            healthLevel: health.level,
+            topCPUAppPath: snap.topCPUApps.first?.appBundlePath,
+            cpuSparklinePoints: Array(cpuBuffer.values.suffix(16))
+        )
+    }
+
     private func evaluateAlertsIfEnabled(_ snap: SystemSnapshot) {
+        let lang = settings.resolvedLanguage
+
         if settings.enableThermalAlert,
            let temp = snap.thermalFan.primaryTemperature,
            temp >= settings.thermalAlertThreshold {
+            let deg = Int(temp.rounded())
             sendNotificationIfNeeded(
                 key: "thermal",
-                title: "Baro 温度提醒",
-                body: "芯片当前温度达到 \(Int(temp.rounded()))°C，请注意散热通风。"
+                title: BaroL10n.t("Baro 温度提醒", "Baro Thermal Alert", lang: lang),
+                body: BaroL10n.t(
+                    "芯片当前温度达到 \(deg)°C，请注意散热通风。",
+                    "SoC temperature reached \(deg)°C.",
+                    lang: lang
+                )
             )
         }
 
         if settings.enableMemoryAlert, snap.memory.pressure == .critical {
+            let pct = Int(snap.memory.usedPercent.rounded())
             sendNotificationIfNeeded(
                 key: "memory",
-                title: "Baro 内存压力提醒",
-                body: "统一内存压力处于紧张状态，已用 \(Int(snap.memory.usedPercent.rounded()))%。"
+                title: BaroL10n.t("Baro 内存压力提醒", "Baro Memory Alert", lang: lang),
+                body: BaroL10n.t(
+                    "统一内存压力处于紧张状态，已用 \(pct)%。",
+                    "Memory pressure is critical (\(pct)% used).",
+                    lang: lang
+                )
             )
         }
 
@@ -361,10 +535,15 @@ public final class SamplingCoordinator: ObservableObject {
            snap.batteryPower.hasInternalBattery,
            !snap.batteryPower.isPluggedIn,
            snap.batteryPower.chargePercent <= 15.0 {
+            let pct = Int(snap.batteryPower.chargePercent.rounded())
             sendNotificationIfNeeded(
                 key: "battery",
-                title: "Baro 低电量提醒",
-                body: "内置电池剩余电量 \(Int(snap.batteryPower.chargePercent.rounded()))%。"
+                title: BaroL10n.t("Baro 低电量提醒", "Baro Low Battery", lang: lang),
+                body: BaroL10n.t(
+                    "内置电池剩余电量 \(pct)%。",
+                    "Internal battery remaining: \(pct)%.",
+                    lang: lang
+                )
             )
         }
     }

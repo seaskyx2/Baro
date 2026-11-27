@@ -5,6 +5,7 @@ public struct CPUCardView: View {
     public let cpu: CPUSnapshot
     public let history: [Double]
     public let temperature: Double?
+    public let lang: ResolvedLanguage
     public let isExpanded: Bool
     public let onToggleExpand: () -> Void
 
@@ -12,12 +13,14 @@ public struct CPUCardView: View {
         cpu: CPUSnapshot,
         history: [Double],
         temperature: Double?,
+        lang: ResolvedLanguage,
         isExpanded: Bool,
         onToggleExpand: @escaping () -> Void
     ) {
         self.cpu = cpu
         self.history = history
         self.temperature = temperature
+        self.lang = lang
         self.isExpanded = isExpanded
         self.onToggleExpand = onToggleExpand
     }
@@ -45,26 +48,26 @@ public struct CPUCardView: View {
             VStack(spacing: 4) {
                 if cpu.pCoreCount > 0 && cpu.eCoreCount > 0 {
                     clusterBarRow(
-                        label: "P核×\(cpu.pCoreCount)",
+                        label: BaroL10n.t("P核×\(cpu.pCoreCount)", "P×\(cpu.pCoreCount)", lang: lang),
                         percent: cpu.pCoreUsagePercent,
                         tint: BaroPalette.pCore,
                         rightText: temperature.map { "\(Int($0.rounded()))°C" } ?? ""
                     )
                     clusterBarRow(
-                        label: "E核×\(cpu.eCoreCount)",
+                        label: BaroL10n.t("E核×\(cpu.eCoreCount)", "E×\(cpu.eCoreCount)", lang: lang),
                         percent: cpu.eCoreUsagePercent,
                         tint: BaroPalette.eCore,
                         rightText: String(format: "%.2f", cpu.loadAverage1m)
                     )
                 } else {
                     clusterBarRow(
-                        label: "用户",
+                        label: BaroL10n.t("用户", "User", lang: lang),
                         percent: cpu.userPercent,
                         tint: BaroPalette.pCore,
                         rightText: temperature.map { "\(Int($0.rounded()))°C" } ?? ""
                     )
                     clusterBarRow(
-                        label: "系统",
+                        label: BaroL10n.t("系统", "Sys", lang: lang),
                         percent: cpu.systemPercent,
                         tint: BaroPalette.eCore,
                         rightText: String(format: "%.2f", cpu.loadAverage1m)
@@ -109,7 +112,7 @@ public struct CPUCardView: View {
     private var perCoreDrawer: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text("全核心实时负载（\(cpu.totalCoreCount) 核）")
+                Text(BaroL10n.t("全核心实时负载（\(cpu.totalCoreCount) 核）", "Per-Core Load (\(cpu.totalCoreCount) cores)", lang: lang))
                     .font(.system(size: 9.5, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()

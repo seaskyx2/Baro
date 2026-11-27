@@ -4,10 +4,12 @@ import SwiftUI
 public struct BatteryPowerCardView: View {
     public let batteryPower: BatteryPowerSnapshot
     public let previewLaptopMode: Bool
+    public let lang: ResolvedLanguage
 
-    public init(batteryPower: BatteryPowerSnapshot, previewLaptopMode: Bool) {
+    public init(batteryPower: BatteryPowerSnapshot, previewLaptopMode: Bool, lang: ResolvedLanguage) {
         self.batteryPower = batteryPower
         self.previewLaptopMode = previewLaptopMode
+        self.lang = lang
     }
 
     public var body: some View {
@@ -18,13 +20,25 @@ public struct BatteryPowerCardView: View {
             return batteryPower
         }()
 
+        let statusBadge: String = {
+            if displaySnapshot.hasInternalBattery {
+                if displaySnapshot.isCharging {
+                    return BaroL10n.t("充电中", "Charging", lang: lang)
+                }
+                return displaySnapshot.isPluggedIn
+                    ? BaroL10n.t("电源适配器", "Adapter", lang: lang)
+                    : BaroL10n.t("内置电池", "Battery", lang: lang)
+            }
+            return BaroL10n.t("交流供电", "AC Power", lang: lang)
+        }()
+
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
-                Label("电源与电池", systemImage: displaySnapshot.hasInternalBattery ? "battery.75percent" : "powerplug.fill")
+                Label(BaroL10n.t("电源与电池", "Power & Battery", lang: lang), systemImage: displaySnapshot.hasInternalBattery ? "battery.75percent" : "powerplug.fill")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(displaySnapshot.hasInternalBattery ? (displaySnapshot.isCharging ? "充电中" : displaySnapshot.powerSourceName) : "交流供电")
+                Text(statusBadge)
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(displaySnapshot.isCharging ? BaroPalette.batteryHealthy : .secondary)
             }
@@ -55,11 +69,14 @@ public struct BatteryPowerCardView: View {
                         .font(.system(size: 13.5, weight: .semibold, design: .rounded).monospacedDigit())
 
                     if let mins = snap.timeRemainingMinutes {
-                        Text(snap.isCharging ? "充满约 \(ByteFormatter.remainingTime(minutes: mins))" : "续航约 \(ByteFormatter.remainingTime(minutes: mins))")
+                        let rem = ByteFormatter.remainingTime(minutes: mins)
+                        Text(snap.isCharging
+                             ? BaroL10n.t("充满约 \(rem)", "Full in \(rem)", lang: lang)
+                             : BaroL10n.t("续航约 \(rem)", "\(rem) left", lang: lang))
                             .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                             .foregroundStyle(.secondary)
                     } else if let watts = snap.adapterWatts {
-                        Text("适配器 \(watts)W")
+                        Text(BaroL10n.t("适配器 \(watts)W", "\(watts)W Adapter", lang: lang))
                             .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -67,7 +84,11 @@ public struct BatteryPowerCardView: View {
             }
 
             HStack {
-                Text("健康 \(Int(snap.healthPercent.rounded()))% · 循环 \(snap.cycleCount)")
+                Text(BaroL10n.t(
+                    "健康 \(Int(snap.healthPercent.rounded()))% · 循环 \(snap.cycleCount)",
+                    "Health \(Int(snap.healthPercent.rounded()))% · \(snap.cycleCount) cycles",
+                    lang: lang
+                ))
                     .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -90,16 +111,18 @@ public struct BatteryPowerCardView: View {
                 Circle()
                     .fill(BaroPalette.batteryHealthy)
                     .frame(width: 6, height: 6)
-                Text(snap.powerWatts > 0 ? String(format: "整机输入 %.1f W", snap.powerWatts) : "交流电源稳定供电")
+                Text(snap.powerWatts > 0
+                     ? BaroL10n.t(String(format: "整机输入 %.1f W", snap.powerWatts), String(format: "System In %.1f W", snap.powerWatts), lang: lang)
+                     : BaroL10n.t("交流电源稳定供电", "Stable AC Power", lang: lang))
                     .font(.system(size: 11, weight: .semibold).monospacedDigit())
                 Spacer()
             }
 
             if snap.peripherals.isEmpty {
-                Text("未连接苹果 HID 无线外设")
+                Text(BaroL10n.t("未连接苹果 HID 无线外设", "No Apple HID peripherals", lang: lang))
                     .font(.system(size: 9.5))
                     .foregroundStyle(.secondary)
-                Text("可在设置中预览笔记本电池卡")
+                Text(BaroL10n.t("可在设置中预览笔记本电池卡", "Preview laptop card in Preferences", lang: lang))
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
             } else {

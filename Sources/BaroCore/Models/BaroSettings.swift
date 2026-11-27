@@ -48,7 +48,9 @@ public enum MenuBarMetric: String, CaseIterable, Codable, Sendable, Identifiable
 @MainActor
 public final class BaroSettings: ObservableObject {
     private enum Keys {
+        static let language = "baro.language"
         static let menuBarStyle = "baro.menuBarStyle"
+        static let showMenuBarIcon = "baro.showMenuBarIcon"
         static let showMenuCPU = "baro.showMenuCPU"
         static let showMenuMemory = "baro.showMenuMemory"
         static let showMenuNetwork = "baro.showMenuNetwork"
@@ -64,6 +66,7 @@ public final class BaroSettings: ObservableObject {
         static let showDiskCard = "baro.showDiskCard"
         static let showBatteryPowerCard = "baro.showBatteryPowerCard"
         static let showTopAppsSection = "baro.showTopAppsSection"
+        static let preferredTopAppsMode = "baro.preferredTopAppsMode"
         static let previewLaptopBatteryOnDesktop = "baro.previewLaptopBatteryOnDesktop"
         static let enableThermalAlert = "baro.enableThermalAlert"
         static let thermalAlertThreshold = "baro.thermalAlertThreshold"
@@ -73,8 +76,16 @@ public final class BaroSettings: ObservableObject {
 
     private let defaults: UserDefaults
 
+    @Published public var language: AppLanguage {
+        didSet { defaults.set(language.rawValue, forKey: Keys.language) }
+    }
+
     @Published public var menuBarStyle: MenuBarStyle {
         didSet { defaults.set(menuBarStyle.rawValue, forKey: Keys.menuBarStyle) }
+    }
+
+    @Published public var showMenuBarIcon: Bool {
+        didSet { defaults.set(showMenuBarIcon, forKey: Keys.showMenuBarIcon) }
     }
 
     @Published public var showMenuCPU: Bool {
@@ -124,6 +135,9 @@ public final class BaroSettings: ObservableObject {
     @Published public var showTopAppsSection: Bool {
         didSet { defaults.set(showTopAppsSection, forKey: Keys.showTopAppsSection) }
     }
+    @Published public var preferredTopAppsMode: String {
+        didSet { defaults.set(preferredTopAppsMode, forKey: Keys.preferredTopAppsMode) }
+    }
     @Published public var previewLaptopBatteryOnDesktop: Bool {
         didSet { defaults.set(previewLaptopBatteryOnDesktop, forKey: Keys.previewLaptopBatteryOnDesktop) }
     }
@@ -144,6 +158,13 @@ public final class BaroSettings: ObservableObject {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
+        if let rawLang = defaults.string(forKey: Keys.language),
+           let parsedLang = AppLanguage(rawValue: rawLang) {
+            self.language = parsedLang
+        } else {
+            self.language = .system
+        }
+
         if let raw = defaults.string(forKey: Keys.menuBarStyle),
            let parsed = MenuBarStyle(rawValue: raw) {
             self.menuBarStyle = parsed
@@ -151,6 +172,7 @@ public final class BaroSettings: ObservableObject {
             self.menuBarStyle = .compactDualRow
         }
 
+        self.showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
         self.showMenuCPU = defaults.object(forKey: Keys.showMenuCPU) as? Bool ?? true
         self.showMenuMemory = defaults.object(forKey: Keys.showMenuMemory) as? Bool ?? true
         self.showMenuNetwork = defaults.object(forKey: Keys.showMenuNetwork) as? Bool ?? true
@@ -170,6 +192,7 @@ public final class BaroSettings: ObservableObject {
         self.showDiskCard = defaults.object(forKey: Keys.showDiskCard) as? Bool ?? true
         self.showBatteryPowerCard = defaults.object(forKey: Keys.showBatteryPowerCard) as? Bool ?? true
         self.showTopAppsSection = defaults.object(forKey: Keys.showTopAppsSection) as? Bool ?? true
+        self.preferredTopAppsMode = defaults.string(forKey: Keys.preferredTopAppsMode) ?? "cpu"
         self.previewLaptopBatteryOnDesktop = defaults.object(forKey: Keys.previewLaptopBatteryOnDesktop) as? Bool ?? false
 
         self.enableThermalAlert = defaults.object(forKey: Keys.enableThermalAlert) as? Bool ?? false
@@ -177,6 +200,10 @@ public final class BaroSettings: ObservableObject {
         self.thermalAlertThreshold = savedThermal > 0 ? savedThermal : 92.0
         self.enableMemoryAlert = defaults.object(forKey: Keys.enableMemoryAlert) as? Bool ?? false
         self.enableLowBatteryAlert = defaults.object(forKey: Keys.enableLowBatteryAlert) as? Bool ?? false
+    }
+
+    public var resolvedLanguage: ResolvedLanguage {
+        BaroL10n.resolve(language)
     }
 
     public var activeMenuMetrics: Set<MenuBarMetric> {

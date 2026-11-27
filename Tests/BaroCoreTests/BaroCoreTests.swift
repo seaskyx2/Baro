@@ -168,5 +168,22 @@ final class BaroCoreTests: XCTestCase {
         let elevated = HealthAnalyzer.analyze(snapshot: snap, topCPUApp: xcode)
         XCTAssertEqual(elevated.level, .elevated)
         XCTAssertTrue(elevated.message.contains("Xcode"))
+
+        let elevatedEn = HealthAnalyzer.analyze(snapshot: snap, topCPUApp: xcode, language: .en)
+        XCTAssertEqual(elevatedEn.level, .elevated)
+        XCTAssertTrue(elevatedEn.message.contains("Xcode"))
+        XCTAssertTrue(elevatedEn.message.contains("High Load"))
+    }
+
+    func testLocalizationResolutionAndProcessCollectorCache() {
+        XCTAssertEqual(BaroL10n.resolve(.zhHans, preferredLanguages: ["en-US"]), .zhHans)
+        XCTAssertEqual(BaroL10n.resolve(.en, preferredLanguages: ["zh-Hans-CN"]), .en)
+        XCTAssertEqual(BaroL10n.resolve(.system, preferredLanguages: ["zh-Hans-CN"]), .zhHans)
+        XCTAssertEqual(BaroL10n.resolve(.system, preferredLanguages: ["en-US"]), .en)
+
+        let collector = ProcessAggregatorCollector()
+        _ = collector.sample(limit: 5)
+        let second = collector.sample(limit: 5)
+        XCTAssertFalse(second.topMemory.isEmpty)
     }
 }

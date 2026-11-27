@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${BARO_VERSION:-1.0.1}"
+VERSION="${BARO_VERSION:-1.1.0}"
 cd "$ROOT_DIR"
 
 echo "[1/5] Generating AppIcon.icns..."
 python3 "$ROOT_DIR/scripts/generate_icon.py"
 
 echo "[2/5] Building Baro v${VERSION} (Release)..."
-swift build -c release -Xswiftc -file-prefix-map -Xswiftc "$ROOT_DIR=."
+swift build -c release
 
 BIN_PATH="$ROOT_DIR/.build/release/Baro"
 if [[ ! -x "$BIN_PATH" ]]; then

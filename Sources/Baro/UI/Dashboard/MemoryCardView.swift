@@ -4,17 +4,20 @@ import SwiftUI
 public struct MemoryCardView: View {
     public let memory: MemorySnapshot
     public let history: [Double]
+    public let lang: ResolvedLanguage
     public let isExpanded: Bool
     public let onToggleExpand: () -> Void
 
     public init(
         memory: MemorySnapshot,
         history: [Double],
+        lang: ResolvedLanguage,
         isExpanded: Bool,
         onToggleExpand: @escaping () -> Void
     ) {
         self.memory = memory
         self.history = history
+        self.lang = lang
         self.isExpanded = isExpanded
         self.onToggleExpand = onToggleExpand
     }
@@ -29,7 +32,7 @@ public struct MemoryCardView: View {
 
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
-                Label("统一内存", systemImage: "memorychip")
+                Label(BaroL10n.t("统一内存", "Memory", lang: lang), systemImage: "memorychip")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -49,7 +52,11 @@ public struct MemoryCardView: View {
             SegmentedBarView(segments: segments, height: 5.5)
 
             HStack {
-                Text("活跃 \(ByteFormatter.memorySize(memory.appBytes)) · 压缩 \(ByteFormatter.memorySize(memory.compressedBytes))")
+                Text(BaroL10n.t(
+                    "活跃 \(ByteFormatter.memorySize(memory.appBytes)) · 压缩 \(ByteFormatter.memorySize(memory.compressedBytes))",
+                    "App \(ByteFormatter.memorySize(memory.appBytes)) · Comp \(ByteFormatter.memorySize(memory.compressedBytes))",
+                    lang: lang
+                ))
                     .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -57,7 +64,7 @@ public struct MemoryCardView: View {
             }
 
             HStack {
-                Text("压力: \(memory.pressure.displayName)")
+                Text(BaroL10n.t("压力: ", "Pressure: ", lang: lang) + BaroL10n.pressureDisplayName(memory.pressure, lang: lang))
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(memory.pressure == .normal ? AnyShapeStyle(.secondary) : AnyShapeStyle(pressureColor))
                 Spacer()
@@ -87,11 +94,11 @@ public struct MemoryCardView: View {
 
     private var memoryDetailsDrawer: some View {
         VStack(spacing: 3.5) {
-            detailRow(dot: BaroPalette.memoryApp, title: "App 内存", value: ByteFormatter.memorySize(memory.appBytes))
-            detailRow(dot: BaroPalette.memoryWired, title: "联动内存", value: ByteFormatter.memorySize(memory.wiredBytes))
-            detailRow(dot: BaroPalette.memoryCompressed, title: "已压缩", value: ByteFormatter.memorySize(memory.compressedBytes))
-            detailRow(dot: Color.secondary.opacity(0.5), title: "已缓存文件", value: ByteFormatter.memorySize(memory.cachedFilesBytes))
-            detailRow(dot: Color.primary.opacity(0.2), title: "剩余可用", value: ByteFormatter.memorySize(memory.freeBytes))
+            detailRow(dot: BaroPalette.memoryApp, title: BaroL10n.t("App 内存", "App Memory", lang: lang), value: ByteFormatter.memorySize(memory.appBytes))
+            detailRow(dot: BaroPalette.memoryWired, title: BaroL10n.t("联动内存", "Wired", lang: lang), value: ByteFormatter.memorySize(memory.wiredBytes))
+            detailRow(dot: BaroPalette.memoryCompressed, title: BaroL10n.t("已压缩", "Compressed", lang: lang), value: ByteFormatter.memorySize(memory.compressedBytes))
+            detailRow(dot: Color.secondary.opacity(0.5), title: BaroL10n.t("已缓存文件", "Cached Files", lang: lang), value: ByteFormatter.memorySize(memory.cachedFilesBytes))
+            detailRow(dot: Color.primary.opacity(0.2), title: BaroL10n.t("剩余可用", "Available", lang: lang), value: ByteFormatter.memorySize(memory.freeBytes))
         }
         .padding(.top, 2)
     }

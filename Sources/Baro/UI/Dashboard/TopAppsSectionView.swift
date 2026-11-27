@@ -4,18 +4,43 @@ import SwiftUI
 
 public struct TopAppsSectionView: View {
     public enum SortMode: String, CaseIterable {
-        case cpu = "CPU"
-        case memory = "内存"
+        case cpu
+        case memory
+
+        public func title(lang: ResolvedLanguage) -> String {
+            switch self {
+            case .cpu: return "CPU"
+            case .memory: return BaroL10n.t("内存", "Memory", lang: lang)
+            }
+        }
     }
 
     public let topCPUApps: [AggregatedAppUsage]
     public let topMemoryApps: [AggregatedAppUsage]
+    public let lang: ResolvedLanguage
+    @Binding public var preferredModeRaw: String
 
-    @State private var mode: SortMode = .cpu
-
-    public init(topCPUApps: [AggregatedAppUsage], topMemoryApps: [AggregatedAppUsage]) {
+    public init(
+        topCPUApps: [AggregatedAppUsage],
+        topMemoryApps: [AggregatedAppUsage],
+        lang: ResolvedLanguage,
+        preferredModeRaw: Binding<String>
+    ) {
         self.topCPUApps = topCPUApps
         self.topMemoryApps = topMemoryApps
+        self.lang = lang
+        self._preferredModeRaw = preferredModeRaw
+    }
+
+    private var mode: SortMode {
+        SortMode(rawValue: preferredModeRaw) ?? .cpu
+    }
+
+    private var modeBinding: Binding<SortMode> {
+        Binding(
+            get: { SortMode(rawValue: preferredModeRaw) ?? .cpu },
+            set: { preferredModeRaw = $0.rawValue }
+        )
     }
 
     public var body: some View {
@@ -23,22 +48,22 @@ public struct TopAppsSectionView: View {
 
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text("资源占用排行（按 App 归并）")
+                Text(BaroL10n.t("资源占用排行（按 App 归并）", "Top Apps (Grouped)", lang: lang))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Picker("", selection: $mode) {
+                Picker("", selection: modeBinding) {
                     ForEach(SortMode.allCases, id: \.self) { m in
-                        Text(m.rawValue).tag(m)
+                        Text(m.title(lang: lang)).tag(m)
                     }
                 }
                 .pickerStyle(.segmented)
                 .controlSize(.mini)
-                .frame(width: 92)
+                .frame(width: 96)
             }
 
             if items.isEmpty {
-                Text("正在采样进程树…")
+                Text(BaroL10n.t("正在采样进程树…", "Sampling processes…", lang: lang))
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -106,7 +131,7 @@ public struct TopAppsSectionView: View {
     @ViewBuilder
     private func appIcon(for app: AggregatedAppUsage) -> some View {
         if let path = app.appBundlePath {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: path))
+            Image(nsImage: AppIconCache.shared.icon(forAppPath: path))
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 3.5, style: .continuous))
