@@ -18,13 +18,23 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "CNVMeSmart",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedFramework("IOKit"),
+                .linkedFramework("CoreFoundation")
+            ]
+        ),
+        .target(
             name: "BaroCore",
+            dependencies: ["CNVMeSmart"],
             linkerSettings: [
                 .linkedFramework("IOKit"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("Foundation"),
                 .linkedFramework("ServiceManagement"),
-                .linkedFramework("UserNotifications")
+                .linkedFramework("UserNotifications"),
+                .linkedFramework("Carbon")
             ]
         ),
         .executableTarget(

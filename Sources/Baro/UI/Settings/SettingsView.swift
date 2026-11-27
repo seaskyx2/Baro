@@ -58,6 +58,16 @@ public struct SettingsView: View {
                 }
 
                 Toggle(BaroL10n.t("低电量模式下自动放慢采样频率", "Slow down sampling in Low Power Mode", lang: lang), isOn: $settings.adaptToLowPower)
+
+                Toggle(BaroL10n.t("全局快捷键呼出 / 收起仪表盘", "Global shortcut to toggle dashboard", lang: lang), isOn: $settings.enableGlobalHotKey)
+
+                if settings.enableGlobalHotKey {
+                    Picker(BaroL10n.t("快捷键组合", "Shortcut", lang: lang), selection: $settings.globalHotKeyPreset) {
+                        ForEach(GlobalHotKeyPreset.allCases) { preset in
+                            Text(preset.label).tag(preset)
+                        }
+                    }
+                }
             }
 
             Section(BaroL10n.t("冷热分层采样频率", "Cold / Hot Sampling Intervals", lang: lang)) {

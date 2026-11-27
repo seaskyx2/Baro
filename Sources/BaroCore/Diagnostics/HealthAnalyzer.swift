@@ -80,6 +80,17 @@ public enum HealthAnalyzer {
             )
         }
 
+        if let blocker = snapshot.sleepBlockers.first {
+            return HealthSummary(
+                level: .calm,
+                message: BaroL10n.t(
+                    "防休眠中 · \(blocker.processName) 正在阻止休眠",
+                    "Sleep Blocked · \(blocker.processName)",
+                    lang: language
+                )
+            )
+        }
+
         if swapBytes == 0 {
             return HealthSummary(
                 level: .calm,

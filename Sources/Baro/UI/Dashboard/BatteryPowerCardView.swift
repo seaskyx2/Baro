@@ -3,11 +3,18 @@ import SwiftUI
 
 public struct BatteryPowerCardView: View {
     public let batteryPower: BatteryPowerSnapshot
+    public let sleepBlockers: [SleepBlocker]
     public let previewLaptopMode: Bool
     public let lang: ResolvedLanguage
 
-    public init(batteryPower: BatteryPowerSnapshot, previewLaptopMode: Bool, lang: ResolvedLanguage) {
+    public init(
+        batteryPower: BatteryPowerSnapshot,
+        sleepBlockers: [SleepBlocker] = [],
+        previewLaptopMode: Bool,
+        lang: ResolvedLanguage
+    ) {
         self.batteryPower = batteryPower
+        self.sleepBlockers = sleepBlockers
         self.previewLaptopMode = previewLaptopMode
         self.lang = lang
     }
@@ -47,6 +54,22 @@ public struct BatteryPowerCardView: View {
                 laptopBatteryView(displaySnapshot)
             } else {
                 desktopPowerView(displaySnapshot)
+            }
+
+            if let firstBlocker = sleepBlockers.first {
+                HStack(spacing: 4) {
+                    Image(systemName: "moon.zzz")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(BaroPalette.healthColor(for: .moderate))
+                    Text(BaroL10n.t(
+                        "防休眠: \(firstBlocker.processName)",
+                        "No-Sleep: \(firstBlocker.processName)",
+                        lang: lang
+                    ))
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
             }
         }
         .bentoCard()

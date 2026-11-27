@@ -14,10 +14,14 @@ final class BaroFloatingPanel: NSPanel {
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private static let activateNotificationName = Notification.Name("com.baro.monitor.activateDashboard")
+
     private let settings = BaroSettings()
     private lazy var coordinator = SamplingCoordinator(settings: settings)
+    private let hotKeyManager = GlobalHotKeyManager()
 
     private var statusItem: NSStatusItem!
+    private var lastMenuBarSignature: String = ""
     private var dashboardPanel: BaroFloatingPanel?
     private var dashboardHostingController: NSHostingController<DashboardPopoverView>?
     private var settingsWindow: NSWindow?
@@ -26,11 +30,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var idleReleaseTimer: Timer?
     private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
+    private var appearanceObservation: NSKeyValueObservation?
+    private var distributedObservers: [NSObjectProtocol] = []
     private var cancellables = Set<AnyCancellable>()
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        if terminateIfDuplicateInstance() {
+            return
+        }
+
         NSApp.setActivationPolicy(.accessory)
         setupStatusItem()
+        observeAppearanceAndInstanceActivation()
+        applyGlobalHotKeySetting()
 
         coordinator.onMenuBarUpdate = { [weak self] data in
             self?.updateStatusCanvas(with: data)
@@ -42,7 +54,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             .debounce(for: .milliseconds(80), scheduler: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
+                self.lastMenuBarSignature = ""
                 self.updateStatusCanvas(with: self.coordinator.currentMenuBarRenderData())
+                self.applyGlobalHotKeySetting()
             }
             .store(in: &cancellables)
     }
@@ -50,7 +64,79 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     public func applicationWillTerminate(_ notification: Notification) {
         coordinator.stop()
         idleReleaseTimer?.invalidate()
+        hotKeyManager.unregister()
         removeMonitors()
+        for obs in distributedObservers {
+            DistributedNotificationCenter.default().removeObserver(obs)
+        }
+        distributedObservers.removeAll()
+        appearanceObservation?.invalidate()
+    }
+
+    // MARK: - Single-Instance Guard
+
+    private func terminateIfDuplicateInstance() -> Bool {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return false }
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+        let hasOther = running.contains { $0.processIdentifier != currentPID && !$0.isTerminated }
+        if hasOther {
+            DistributedNotificationCenter.default().postNotificationName(
+                Self.activateNotificationName,
+                object: nil,
+                userInfo: nil,
+                deliverImmediately: true
+            )
+            NSApp.terminate(nil)
+            return true
+        }
+        return false
+    }
+
+    private func observeAppearanceAndInstanceActivation() {
+        let center = DistributedNotificationCenter.default()
+
+        let themeObs = center.addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.forceRedrawMenuBar()
+            }
+        }
+        distributedObservers.append(themeObs)
+
+        let activateObs = center.addObserver(
+            forName: Self.activateNotificationName,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.openDashboardFromMenu()
+            }
+        }
+        distributedObservers.append(activateObs)
+
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.forceRedrawMenuBar()
+            }
+        }
+    }
+
+    private func applyGlobalHotKeySetting() {
+        hotKeyManager.configure(
+            enabled: settings.enableGlobalHotKey,
+            preset: settings.globalHotKeyPreset
+        ) { [weak self] in
+            self?.toggleDashboardPanel()
+        }
+    }
+
+    private func forceRedrawMenuBar() {
+        lastMenuBarSignature = ""
+        updateStatusCanvas(with: coordinator.currentMenuBarRenderData())
     }
 
     // MARK: - Native Template Image NSStatusItem
@@ -72,6 +158,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private func updateStatusCanvas(with data: MenuBarRenderData) {
         guard let button = statusItem.button else { return }
         let appearance = button.effectiveAppearance
+        let sig = MenuBarImageRenderer.renderSignature(data: data, settings: settings, appearance: appearance)
+        guard sig != lastMenuBarSignature else { return }
+        lastMenuBarSignature = sig
+
         let image = MenuBarImageRenderer.render(data: data, settings: settings, appearance: appearance)
         button.image = image
         if abs(image.size.width - statusItem.length) >= 0.5 {
@@ -98,6 +188,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         )
         openItem.target = self
         menu.addItem(openItem)
+
+        let copyItem = NSMenuItem(
+            title: BaroL10n.t("复制系统快照", "Copy System Snapshot", lang: lang),
+            action: #selector(copySnapshotFromMenu),
+            keyEquivalent: ""
+        )
+        copyItem.target = self
+        menu.addItem(copyItem)
 
         let settingsItem = NSMenuItem(
             title: BaroL10n.t("偏好设置…", "Preferences…", lang: lang),
@@ -188,6 +286,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
     }
 
+    @objc private func copySnapshotFromMenu() {
+        let lang = settings.resolvedLanguage
+        let snap = coordinator.isPanelOpen ? coordinator.snapshot : CollectorEngine().sampleHot(bypassThrottle: true)
+        let health = HealthAnalyzer.analyze(
+            snapshot: snap,
+            topCPUApp: snap.topCPUApps.first,
+            topMemoryApp: snap.topMemoryApps.first,
+            language: lang
+        )
+        let text = SnapshotExporter.formatPlainText(hostInfo: coordinator.hostInfo, snapshot: snap, health: health, lang: lang)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     @objc private func openSettingsFromMenu() {
         openSettingsWindow()
     }
@@ -196,14 +308,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         guard let raw = sender.representedObject as? String,
               let chosen = MenuBarStyle(rawValue: raw) else { return }
         settings.menuBarStyle = chosen
-        updateStatusCanvas(with: coordinator.currentMenuBarRenderData())
+        forceRedrawMenuBar()
     }
 
     @objc private func selectMenuBarDensity(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let chosen = MenuBarDensity(rawValue: raw) else { return }
         settings.menuBarDensity = chosen
-        updateStatusCanvas(with: coordinator.currentMenuBarRenderData())
+        forceRedrawMenuBar()
     }
 
     @objc private func openUserGuideFromMenu() {

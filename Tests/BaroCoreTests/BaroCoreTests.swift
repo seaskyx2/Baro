@@ -190,4 +190,64 @@ final class BaroCoreTests: XCTestCase {
         let second = collector.sample(limit: 5)
         XCTAssertFalse(second.topMemory.isEmpty)
     }
+
+    func testNVMeSmartUnitConversionAndSleepAssertionsAndSanitizedExport() {
+        let smart = DiskCollector.convertNVMeReading(
+            percentageUsed: 3,
+            availableSpare: 100,
+            temperatureCelsius: 36,
+            dataUnitsReadLow: 20_000_000,
+            dataUnitsWrittenLow: 10_000_000,
+            powerOnHours: 420,
+            powerCycles: 32
+        )
+        XCTAssertEqual(smart.healthPercent, 97)
+        XCTAssertEqual(smart.totalBytesWritten, 5_120_000_000_000)
+        XCTAssertEqual(smart.totalBytesRead, 10_240_000_000_000)
+        XCTAssertEqual(smart.temperatureCelsius, 36)
+
+        let rawAssertions: [NSNumber: [[String: Any]]] = [
+            100: [["AssertType": "PreventUserIdleSystemSleep", "Process Name": "powerd"]],
+            200: [["AssertType": "PreventUserIdleDisplaySleep", "Process Name": "CaffeineApp"]],
+            300: [["AssertType": "BackgroundTask", "Process Name": "SomeTask"]]
+        ]
+        let blockers = SleepAssertionCollector.parseAssertions(rawAssertions)
+        XCTAssertEqual(blockers.count, 1)
+        XCTAssertEqual(blockers.first?.processName, "CaffeineApp")
+        XCTAssertTrue(blockers.first?.preventsDisplaySleep == true)
+
+        var snap = SystemSnapshot.empty
+        snap.network = NetworkSnapshot(
+            downloadBytesPerSec: 1_024_000,
+            uploadBytesPerSec: 512_000,
+            sessionDownloadBytes: 5_000_000,
+            sessionUploadBytes: 2_000_000,
+            primaryInterface: "en0",
+            localIPAddress: "192.168.1.99",
+            isConnected: true
+        )
+        snap.sleepBlockers = blockers
+        let host = HostStaticInfo(
+            chipName: "Apple M4",
+            modelIdentifier: "Mac",
+            osVersionString: "macOS 27.2",
+            totalMemoryBytes: 17_179_869_184,
+            pCoreCount: 4,
+            eCoreCount: 6,
+            totalCoreCount: 10
+        )
+        let exported = SnapshotExporter.formatPlainText(
+            hostInfo: host,
+            snapshot: snap,
+            health: HealthAnalyzer.analyze(snapshot: snap, language: .en),
+            lang: .en
+        )
+        XCTAssertFalse(exported.contains("192.168.1.99"))
+        XCTAssertFalse(exported.contains("/Users/"))
+        XCTAssertTrue(exported.contains("CaffeineApp"))
+
+        let netCollector = NetworkCollector()
+        let netSnap = netCollector.sample()
+        XCTAssertNotNil(netSnap.primaryInterface)
+    }
 }

@@ -39,6 +39,7 @@ public final class CollectorEngine: @unchecked Sendable {
     public let batteryPower = BatteryPowerCollector()
     public let siliconPower = AppleSiliconPowerCollector()
     public let thermalFan = ThermalFanCollector()
+    public let sleepAssertion = SleepAssertionCollector()
     public let processAggregator = ProcessAggregatorCollector()
 
     private let throttleLock = NSLock()
@@ -46,6 +47,8 @@ public final class CollectorEngine: @unchecked Sendable {
     private var cachedDiskSnapshot: DiskSnapshot = .empty
     private var lastBatterySampleAt: Date?
     private var cachedBatterySnapshot: BatteryPowerSnapshot = .empty
+    private var lastSleepSampleAt: Date?
+    private var cachedSleepBlockers: [SleepBlocker] = []
     private var lastProcessSampleAt: Date?
     private var cachedTopCPU: [AggregatedAppUsage] = []
     private var cachedTopMemory: [AggregatedAppUsage] = []
@@ -63,6 +66,7 @@ public final class CollectorEngine: @unchecked Sendable {
         throttleLock.lock()
         lastDiskSampleAt = nil
         lastBatterySampleAt = nil
+        lastSleepSampleAt = nil
         lastProcessSampleAt = nil
         processSampleCountInHot = 0
         throttleLock.unlock()
@@ -136,6 +140,7 @@ public final class CollectorEngine: @unchecked Sendable {
         let batSnap = includeBattery ? (bypassThrottle ? batteryPower.sample() : cachedOrFreshBattery(minInterval: 8.0)) : .empty
         var powerSnap = includeSiliconPower ? siliconPower.sample() : .empty
         let thermalSnap = includeThermal ? thermalFan.sample() : .empty
+        let sleepBlockers = bypassThrottle ? sleepAssertion.sample() : cachedOrFreshSleepBlockers(minInterval: 6.0)
         let procs = includeProcesses
             ? (bypassThrottle ? processAggregator.sample(limit: 5) : cachedOrFreshProcesses(minInterval: 3.0))
             : (topCPU: [], topMemory: [])
@@ -159,6 +164,7 @@ public final class CollectorEngine: @unchecked Sendable {
             batteryPower: batSnap,
             siliconPower: powerSnap,
             thermalFan: thermalSnap,
+            sleepBlockers: sleepBlockers,
             topCPUApps: procs.topCPU,
             topMemoryApps: procs.topMemory
         )
@@ -196,6 +202,24 @@ public final class CollectorEngine: @unchecked Sendable {
         throttleLock.lock()
         lastBatterySampleAt = now
         cachedBatterySnapshot = fresh
+        throttleLock.unlock()
+        return fresh
+    }
+
+    private func cachedOrFreshSleepBlockers(minInterval: TimeInterval) -> [SleepBlocker] {
+        let now = Date()
+        throttleLock.lock()
+        let last = lastSleepSampleAt
+        let cached = cachedSleepBlockers
+        throttleLock.unlock()
+
+        if let last, now.timeIntervalSince(last) < minInterval {
+            return cached
+        }
+        let fresh = sleepAssertion.sample()
+        throttleLock.lock()
+        lastSleepSampleAt = now
+        cachedSleepBlockers = fresh
         throttleLock.unlock()
         return fresh
     }

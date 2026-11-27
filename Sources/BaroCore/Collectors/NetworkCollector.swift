@@ -28,51 +28,9 @@ public final class NetworkCollector: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        var ifap: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifap) == 0, let firstAddr = ifap else {
-            return .empty
-        }
-        defer { freeifaddrs(firstAddr) }
-
-        var currentTotals: [String: InterfaceTotals] = [:]
-        var ipv4Map: [String: String] = [:]
-        var interfaceOrder: [String] = []
-
-        var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
-        while let current = ptr {
-            let flags = Int32(current.pointee.ifa_flags)
-            let isUp = (flags & IFF_UP) != 0
-            let isRunning = (flags & IFF_RUNNING) != 0
-            let isLoopback = (flags & IFF_LOOPBACK) != 0
-
-            if isUp, isRunning, !isLoopback, let namePtr = current.pointee.ifa_name {
-                let name = String(cString: namePtr)
-                if isPhysicalInterface(name), let addr = current.pointee.ifa_addr {
-                    let family = Int32(addr.pointee.sa_family)
-                    if family == AF_LINK, let dataPtr = current.pointee.ifa_data {
-                        let ifData = dataPtr.assumingMemoryBound(to: if_data.self).pointee
-                        currentTotals[name] = InterfaceTotals(
-                            inBytes: UInt64(ifData.ifi_ibytes),
-                            outBytes: UInt64(ifData.ifi_obytes)
-                        )
-                        if !interfaceOrder.contains(name) {
-                            interfaceOrder.append(name)
-                        }
-                    } else if family == AF_INET {
-                        var ipBuffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                        let len = socklen_t(addr.pointee.sa_len)
-                        if getnameinfo(addr, len, &ipBuffer, socklen_t(ipBuffer.count), nil, 0, NI_NUMERICHOST) == 0 {
-                            let bytes = ipBuffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
-                            let ip = String(decoding: bytes, as: UTF8.self)
-                            if !ip.hasPrefix("169.254.") {
-                                ipv4Map[name] = ip
-                            }
-                        }
-                    }
-                }
-            }
-            ptr = current.pointee.ifa_next
-        }
+        let (fallbackTotals, ipv4Map, interfaceOrder) = readIPv4AndFallbackTotals()
+        let sysctlTotals = read64BitInterfaceTotals()
+        let currentTotals = sysctlTotals.isEmpty ? fallbackTotals : sysctlTotals.filter { isPhysicalInterface($0.key) }
 
         let now = Date()
         var downloadSpeed = 0.0
@@ -119,6 +77,116 @@ public final class NetworkCollector: @unchecked Sendable {
             localIPAddress: localIP,
             isConnected: isConnected
         )
+    }
+
+    /// 使用 sysctl NET_RT_IFLIST2 读取真 64 位 if_data64 字节计数器，彻底解决 4GB 回绕问题
+    private func read64BitInterfaceTotals() -> [String: InterfaceTotals] {
+        var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
+        var len = 0
+        guard sysctl(&mib, 6, nil, &len, nil, 0) == 0, len > 0 else {
+            return [:]
+        }
+
+        var buffer = [UInt8](repeating: 0, count: len)
+        guard sysctl(&mib, 6, &buffer, &len, nil, 0) == 0, len > 0 else {
+            return [:]
+        }
+
+        var result: [String: InterfaceTotals] = [:]
+        buffer.withUnsafeBytes { rawBuf in
+            var offset = 0
+            let headerSize = MemoryLayout<if_msghdr2>.stride
+            let baseAddr = rawBuf.baseAddress!
+
+            while offset + headerSize <= len {
+                let msgPtr = baseAddr.advanced(by: offset).assumingMemoryBound(to: if_msghdr2.self)
+                let msg = msgPtr.pointee
+                let msgLen = Int(msg.ifm_msglen)
+                guard msgLen > 0, offset + msgLen <= len else { break }
+
+                if Int32(msg.ifm_type) == RTM_IFINFO2 {
+                    let flags = msg.ifm_flags
+                    let isUp = (flags & IFF_UP) != 0
+                    let isRunning = (flags & IFF_RUNNING) != 0
+                    let isLoopback = (flags & IFF_LOOPBACK) != 0
+
+                    if isUp, isRunning, !isLoopback, (msg.ifm_addrs & RTA_IFP) != 0 {
+                        let sdlOffset = offset + headerSize
+                        if sdlOffset + MemoryLayout<sockaddr_dl>.stride <= offset + msgLen {
+                            let sdlPtr = baseAddr.advanced(by: sdlOffset).assumingMemoryBound(to: sockaddr_dl.self)
+                            let sdl = sdlPtr.pointee
+                            if Int32(sdl.sdl_family) == AF_LINK, sdl.sdl_nlen > 0 {
+                                let nameLen = Int(sdl.sdl_nlen)
+                                let nameStart = sdlOffset + MemoryLayout<sockaddr_dl>.offset(of: \sockaddr_dl.sdl_data)!
+                                if nameStart + nameLen <= offset + msgLen {
+                                    let nameBytes = rawBuf[nameStart..<(nameStart + nameLen)]
+                                    let name = String(decoding: nameBytes, as: UTF8.self)
+                                    if isPhysicalInterface(name) {
+                                        result[name] = InterfaceTotals(
+                                            inBytes: msg.ifm_data.ifi_ibytes,
+                                            outBytes: msg.ifm_data.ifi_obytes
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                offset += msgLen
+            }
+        }
+        return result
+    }
+
+    private func readIPv4AndFallbackTotals() -> (totals: [String: InterfaceTotals], ipv4Map: [String: String], order: [String]) {
+        var ifap: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifap) == 0, let firstAddr = ifap else {
+            return ([:], [:], [])
+        }
+        defer { freeifaddrs(firstAddr) }
+
+        var fallbackTotals: [String: InterfaceTotals] = [:]
+        var ipv4Map: [String: String] = [:]
+        var interfaceOrder: [String] = []
+
+        var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
+        while let current = ptr {
+            let flags = Int32(current.pointee.ifa_flags)
+            let isUp = (flags & IFF_UP) != 0
+            let isRunning = (flags & IFF_RUNNING) != 0
+            let isLoopback = (flags & IFF_LOOPBACK) != 0
+
+            if isUp, isRunning, !isLoopback, let namePtr = current.pointee.ifa_name {
+                let name = String(cString: namePtr)
+                if isPhysicalInterface(name), let addr = current.pointee.ifa_addr {
+                    let family = Int32(addr.pointee.sa_family)
+                    if family == AF_LINK, let dataPtr = current.pointee.ifa_data {
+                        let ifData = dataPtr.assumingMemoryBound(to: if_data.self).pointee
+                        fallbackTotals[name] = InterfaceTotals(
+                            inBytes: UInt64(ifData.ifi_ibytes),
+                            outBytes: UInt64(ifData.ifi_obytes)
+                        )
+                        if !interfaceOrder.contains(name) {
+                            interfaceOrder.append(name)
+                        }
+                    } else if family == AF_INET {
+                        var ipBuffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                        let len = socklen_t(addr.pointee.sa_len)
+                        if getnameinfo(addr, len, &ipBuffer, socklen_t(ipBuffer.count), nil, 0, NI_NUMERICHOST) == 0 {
+                            let bytes = ipBuffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+                            let ip = String(decoding: bytes, as: UTF8.self)
+                            if !ip.hasPrefix("169.254.") {
+                                ipv4Map[name] = ip
+                            }
+                        }
+                    }
+                }
+            }
+            ptr = current.pointee.ifa_next
+        }
+
+        return (fallbackTotals, ipv4Map, interfaceOrder)
     }
 
     private func isPhysicalInterface(_ name: String) -> Bool {

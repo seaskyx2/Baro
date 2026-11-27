@@ -1,15 +1,19 @@
+import CNVMeSmart
 import Foundation
 import IOKit
 
 public final class DiskCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var previousIO: (readBytes: UInt64, writeBytes: UInt64, timestamp: Date)?
+    private var lastSmartFetchAt: Date?
+    private var cachedSmartSnapshot: NVMeSmartSnapshot?
 
     public init() {}
 
     public func resetBaseline() {
         lock.lock()
         previousIO = nil
+        lastSmartFetchAt = nil
         lock.unlock()
     }
 
@@ -37,10 +41,70 @@ public final class DiskCollector: @unchecked Sendable {
         }
         previousIO = (totalRead, totalWrite, now)
 
+        let smart = readSmartWithThrottle(now: now)
+
         return DiskSnapshot(
             readBytesPerSec: readRate,
             writeBytesPerSec: writeRate,
-            volumes: volumes
+            volumes: volumes,
+            smart: smart
+        )
+    }
+
+    private func readSmartWithThrottle(now: Date) -> NVMeSmartSnapshot? {
+        if let last = lastSmartFetchAt, now.timeIntervalSince(last) < 60.0 {
+            return cachedSmartSnapshot
+        }
+        var raw = BaroNVMeSmartReading()
+        let ok = baro_read_nvme_smart(&raw)
+        lastSmartFetchAt = now
+        if ok && raw.available {
+            let parsed = Self.convertNVMeReading(
+                percentageUsed: raw.percentageUsed,
+                availableSpare: raw.availableSpare,
+                temperatureCelsius: raw.temperatureCelsius,
+                dataUnitsReadLow: raw.dataUnitsReadLow,
+                dataUnitsWrittenLow: raw.dataUnitsWrittenLow,
+                powerOnHours: raw.powerOnHours,
+                powerCycles: raw.powerCycles
+            )
+            cachedSmartSnapshot = parsed
+            return parsed
+        }
+        return cachedSmartSnapshot
+    }
+
+    /// 按 NVMe 规范（1 data unit = 1000 × 512 = 512,000 bytes）换算读写总量与剩余健康度
+    public static func convertNVMeReading(
+        percentageUsed: UInt8,
+        availableSpare: UInt8,
+        temperatureCelsius: Int32,
+        dataUnitsReadLow: UInt64,
+        dataUnitsWrittenLow: UInt64,
+        powerOnHours: UInt64,
+        powerCycles: UInt64
+    ) -> NVMeSmartSnapshot {
+        let pctUsed = Int(percentageUsed)
+        let health = max(0, min(100, 100 - pctUsed))
+        let unitSize: UInt64 = 512_000
+        let written = dataUnitsWrittenLow.multipliedReportingOverflow(by: unitSize).overflow
+            ? UInt64.max
+            : dataUnitsWrittenLow * unitSize
+        let read = dataUnitsReadLow.multipliedReportingOverflow(by: unitSize).overflow
+            ? UInt64.max
+            : dataUnitsReadLow * unitSize
+        let temp: Int? = (temperatureCelsius > 0 && temperatureCelsius < 120) ? Int(temperatureCelsius) : nil
+
+        return NVMeSmartSnapshot(
+            isAvailable: true,
+            healthPercent: health,
+            percentageUsed: pctUsed,
+            availableSparePercent: Int(availableSpare),
+            temperatureCelsius: temp,
+            totalBytesWritten: written,
+            totalBytesRead: read,
+            powerOnHours: powerOnHours,
+            powerCycles: powerCycles
         )
     }
 

@@ -54,8 +54,13 @@ struct BaroMain {
         print("Memory     : Used \(ByteFormatter.memorySize(snap.memory.usedBytes)) (\(String(format: "%.1f%%", snap.memory.usedPercent))) | App \(ByteFormatter.memorySize(snap.memory.appBytes)) | Wired \(ByteFormatter.memorySize(snap.memory.wiredBytes)) | Compressed \(ByteFormatter.memorySize(snap.memory.compressedBytes)) | Swap \(ByteFormatter.memorySize(snap.memory.swapUsedBytes)) | Pressure: \(snap.memory.pressure.displayName)")
         print("Network    : \(snap.network.primaryInterface) (\(snap.network.localIPAddress)) | Down \(ByteFormatter.detailedRate(snap.network.downloadBytesPerSec)) | Up \(ByteFormatter.detailedRate(snap.network.uploadBytesPerSec))")
         if let vol = snap.disk.primaryVolume {
-            print("Disk       : \(vol.name) Free \(ByteFormatter.diskSize(vol.availableBytes)) / \(ByteFormatter.diskSize(vol.totalBytes)) (\(String(format: "%.1f%%", vol.usedPercent)) used) | Read \(ByteFormatter.detailedRate(snap.disk.readBytesPerSec)) | Write \(ByteFormatter.detailedRate(snap.disk.writeBytesPerSec))")
+            var diskExtra = ""
+            if let smart = snap.disk.smart, smart.isAvailable {
+                diskExtra = " | SMART Health \(smart.healthPercent)% | TBW \(ByteFormatter.diskSize(smart.totalBytesWritten)) | \(smart.powerOnHours)h"
+            }
+            print("Disk       : \(vol.name) Free \(ByteFormatter.diskSize(vol.availableBytes)) / \(ByteFormatter.diskSize(vol.totalBytes)) (\(String(format: "%.1f%%", vol.usedPercent)) used) | Read \(ByteFormatter.detailedRate(snap.disk.readBytesPerSec)) | Write \(ByteFormatter.detailedRate(snap.disk.writeBytesPerSec))\(diskExtra)")
         }
+        print("SleepLock  : \(snap.sleepBlockers.isEmpty ? "None" : snap.sleepBlockers.map { "\($0.processName) (\($0.assertionType))" }.joined(separator: ", "))")
         print("Power/Batt : InternalBattery=\(snap.batteryPower.hasInternalBattery) | Source=\(snap.batteryPower.powerSourceName) | HID Peripherals=\(snap.batteryPower.peripherals.count)")
         if snap.siliconPower.isAvailable {
             print(String(

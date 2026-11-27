@@ -39,6 +39,22 @@ public enum MenuBarDensity: String, CaseIterable, Codable, Sendable, Identifiabl
     public var id: String { rawValue }
 }
 
+public enum GlobalHotKeyPreset: String, CaseIterable, Codable, Sendable, Identifiable {
+    case ctrlOptionB
+    case ctrlShiftB
+    case optionCommandB
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .ctrlOptionB: return "⌃⌥B"
+        case .ctrlShiftB: return "⌃⇧B"
+        case .optionCommandB: return "⌥⌘B"
+        }
+    }
+}
+
 public enum MenuBarMetric: String, CaseIterable, Codable, Sendable, Identifiable {
     case cpu
     case memory
@@ -74,6 +90,8 @@ public final class BaroSettings: ObservableObject {
         static let coldInterval = "baro.coldInterval"
         static let hotInterval = "baro.hotInterval"
         static let adaptToLowPower = "baro.adaptToLowPower"
+        static let enableGlobalHotKey = "baro.enableGlobalHotKey"
+        static let globalHotKeyPreset = "baro.globalHotKeyPreset"
         static let showCPUCard = "baro.showCPUCard"
         static let showMemoryCard = "baro.showMemoryCard"
         static let showPowerGPUCard = "baro.showPowerGPUCard"
@@ -131,6 +149,12 @@ public final class BaroSettings: ObservableObject {
     }
     @Published public var adaptToLowPower: Bool {
         didSet { defaults.set(adaptToLowPower, forKey: Keys.adaptToLowPower) }
+    }
+    @Published public var enableGlobalHotKey: Bool {
+        didSet { defaults.set(enableGlobalHotKey, forKey: Keys.enableGlobalHotKey) }
+    }
+    @Published public var globalHotKeyPreset: GlobalHotKeyPreset {
+        didSet { defaults.set(globalHotKeyPreset.rawValue, forKey: Keys.globalHotKeyPreset) }
     }
 
     @Published public var showCPUCard: Bool {
@@ -210,6 +234,13 @@ public final class BaroSettings: ObservableObject {
         let savedHot = defaults.double(forKey: Keys.hotInterval)
         self.hotInterval = savedHot > 0 ? savedHot : 1.5
         self.adaptToLowPower = defaults.object(forKey: Keys.adaptToLowPower) as? Bool ?? true
+        self.enableGlobalHotKey = defaults.object(forKey: Keys.enableGlobalHotKey) as? Bool ?? true
+        if let rawHK = defaults.string(forKey: Keys.globalHotKeyPreset),
+           let parsedHK = GlobalHotKeyPreset(rawValue: rawHK) {
+            self.globalHotKeyPreset = parsedHK
+        } else {
+            self.globalHotKeyPreset = .ctrlOptionB
+        }
 
         self.showCPUCard = defaults.object(forKey: Keys.showCPUCard) as? Bool ?? true
         self.showMemoryCard = defaults.object(forKey: Keys.showMemoryCard) as? Bool ?? true

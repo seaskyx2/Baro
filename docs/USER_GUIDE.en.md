@@ -25,9 +25,10 @@
 
 Baro occupies only **1 single menu bar slot**, preventing overlap or ordering issues on notched MacBooks:
 
-* **Left-click**: Open / close the floating dashboard panel (click outside or press `Esc` to dismiss).
+* **Left-click** or **Global Shortcut (Default `⌃⌥B`)**: Open / close the floating dashboard panel (click outside or press `Esc` to dismiss; permission-free, customizable in Preferences).
 * **Right-click**: Open the quick context menu:
   * **Open Baro Dashboard**
+  * **Copy System Snapshot** (sanitized plain-text report with zero IPs or personal paths)
   * **Preferences…** (`Command + ,`)
   * **Menu Bar Style ▸** (instant 1-click switching across all 5 styles)
   * **Menu Bar Spacing ▸** (Compact / Standard / Relaxed)
@@ -54,7 +55,9 @@ Left-click the menu bar capsule to reveal the Bento dashboard:
    * **CPU Card**: Reveals **per-core real-time bar charts** (distinguishing Indigo `P-Cores` from Teal `E-Cores`) plus 1m/5m Load Averages.
    * **Unified Memory Card**: Expands the exact memory breakdown (App, Wired, Compressed, Cached Files, Free).
    * **Power & GPU Card**: Expands the **read-only thermal & fan sensor table** (zone temperatures and current/max RPM).
-   * **Disk Card**: Expands remaining capacity across secondary mounted volumes when attached.
+   * **Disk Card**: Expands **non-root NVMe S.M.A.R.T. health** (SSD remaining life %, total written TBW, total read, power-on hours, SSD temp) alongside secondary mounted volumes.
+  * **Sanitized Snapshot Copy**: Click the copy icon in the dashboard header to copy a privacy-safe plain-text system report.
+  * **Sleep Blocker Notice**: If a user app holds a sleep/display assertion, Baro gently surfaces its name in the Power card and top health summary.
    * *Click any expanded card again to collapse it.*
 2. **Sparkline Hover Inspect**:
    * Glide your cursor over any sparkline chart (CPU, Memory, Power, or Network) to reveal a vertical hairline cursor and exact historical readout tooltip.

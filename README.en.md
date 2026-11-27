@@ -21,7 +21,20 @@ Baro (*Barometer* + *Menu Bar*) is strictly **Read-Only by Construction**:
 - **Per-Core CPU Monitoring**: Apple Silicon P-Core vs. E-Core cluster averages, expandable per-core real-time bar chart drawer, and Load Averages.
 - **Unified Memory**: Activity Monitor-aligned accounting (App, Wired, Compressed), Swap usage, and memory pressure state.
 - **Apple Silicon Power, GPU & Thermals (No `sudo`)**: Reads GPU usage and energy via `libIOReport`, combined with `PowerTelemetryData` and read-only `AppleSMC` for system wattage, filtered die/zone temperatures, and fan RPM.
-- **Network & Disk**: Active physical interface up/down rates, local IP, session traffic totals, deduplicated mounted volumes, and block storage throughput.
+- **Network & Storage**: 64-bit interface counters (immune to 4GB wrap-around), live rates, local IP, session totals, mounted volumes, block I/O throughput, plus **non-root NVMe S.M.A.R.T. health & TBW**.
+- **Sleep Blocker Detection**: Uses `IOPMCopyAssertionsByProcess` (zero permissions) to surface user apps preventing display or system sleep.
+- **Permission-Free Global Hotkey & Sanitized Snapshot**: Toggle dashboard anytime with `⌃⌥B` / `⌃⇧B` / `⌥⌘B` (no Accessibility prompt); 1-click copy sanitized text snapshot (no IPs or personal paths).
+
+## Comparison
+
+| Feature | **Baro** | Stats | AirStats | iStat Menus |
+| :--- | :---: | :---: | :---: | :---: |
+| Open Source & Free | ✅ MIT | ✅ MIT | ✅ | ❌ Paid |
+| Pure Read-Only (No Cleaner / Fan Write / Helper) | ✅ | ❌ | ✅ | ❌ |
+| Zero Location / Bluetooth Permission Prompts | ✅ | ⚠️ | ✅ | ⚠️ |
+| Single-Slot 5 Styles (Notch-Safe) | ✅ | ⚠️ Multi-item | ⚠️ | ✅ |
+| Non-root NVMe TBW + Sleep Blocker Detection | ✅ | ⚠️ | ❌ | ✅ |
+| Idle Panel Memory Release & Render Deduplication | ✅ | ❌ | ✅ | ✅ |
 - **Adaptive Battery & Power Card**: Full battery ring gauge, charge/discharge watts, health %, cycle count, temperature, and adapter wattage on MacBooks; AC power telemetry and Apple HID peripheral batteries on desktop Macs (plus a desktop preview toggle in Preferences).
 - **Parent-App Aggregated Top Processes**: Merges scattered Helper/Renderer subprocesses under their parent `.app` bundle to pinpoint CPU and memory hogs cleanly.
 - **Plain-Language Health Summary**: Concise status pill summarizing system state at a glance.

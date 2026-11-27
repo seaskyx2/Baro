@@ -223,27 +223,80 @@ public struct DiskVolume: Sendable, Equatable, Identifiable {
     }
 }
 
+public struct NVMeSmartSnapshot: Sendable, Equatable {
+    public var isAvailable: Bool
+    public var healthPercent: Int
+    public var percentageUsed: Int
+    public var availableSparePercent: Int
+    public var temperatureCelsius: Int?
+    public var totalBytesWritten: UInt64
+    public var totalBytesRead: UInt64
+    public var powerOnHours: UInt64
+    public var powerCycles: UInt64
+
+    public init(
+        isAvailable: Bool,
+        healthPercent: Int,
+        percentageUsed: Int,
+        availableSparePercent: Int,
+        temperatureCelsius: Int?,
+        totalBytesWritten: UInt64,
+        totalBytesRead: UInt64,
+        powerOnHours: UInt64,
+        powerCycles: UInt64
+    ) {
+        self.isAvailable = isAvailable
+        self.healthPercent = healthPercent
+        self.percentageUsed = percentageUsed
+        self.availableSparePercent = availableSparePercent
+        self.temperatureCelsius = temperatureCelsius
+        self.totalBytesWritten = totalBytesWritten
+        self.totalBytesRead = totalBytesRead
+        self.powerOnHours = powerOnHours
+        self.powerCycles = powerCycles
+    }
+}
+
+public struct SleepBlocker: Sendable, Equatable, Identifiable {
+    public var id: String { "\(pid):\(processName)" }
+    public let pid: Int32
+    public let processName: String
+    public let assertionType: String
+    public let preventsDisplaySleep: Bool
+
+    public init(pid: Int32, processName: String, assertionType: String, preventsDisplaySleep: Bool) {
+        self.pid = pid
+        self.processName = processName
+        self.assertionType = assertionType
+        self.preventsDisplaySleep = preventsDisplaySleep
+    }
+}
+
 public struct DiskSnapshot: Sendable, Equatable {
     public var readBytesPerSec: Double
     public var writeBytesPerSec: Double
     public var volumes: [DiskVolume]
+    public var smart: NVMeSmartSnapshot?
 
     public var primaryVolume: DiskVolume? { volumes.first }
 
     public static let empty = DiskSnapshot(
         readBytesPerSec: 0,
         writeBytesPerSec: 0,
-        volumes: []
+        volumes: [],
+        smart: nil
     )
 
     public init(
         readBytesPerSec: Double,
         writeBytesPerSec: Double,
-        volumes: [DiskVolume]
+        volumes: [DiskVolume],
+        smart: NVMeSmartSnapshot? = nil
     ) {
         self.readBytesPerSec = readBytesPerSec
         self.writeBytesPerSec = writeBytesPerSec
         self.volumes = volumes
+        self.smart = smart
     }
 }
 
@@ -539,6 +592,7 @@ public struct SystemSnapshot: Sendable, Equatable {
     public var batteryPower: BatteryPowerSnapshot
     public var siliconPower: AppleSiliconPowerSnapshot
     public var thermalFan: ThermalFanSnapshot
+    public var sleepBlockers: [SleepBlocker]
     public var topCPUApps: [AggregatedAppUsage]
     public var topMemoryApps: [AggregatedAppUsage]
 
@@ -552,6 +606,7 @@ public struct SystemSnapshot: Sendable, Equatable {
         batteryPower: .empty,
         siliconPower: .empty,
         thermalFan: .empty,
+        sleepBlockers: [],
         topCPUApps: [],
         topMemoryApps: []
     )
@@ -566,6 +621,7 @@ public struct SystemSnapshot: Sendable, Equatable {
         batteryPower: BatteryPowerSnapshot,
         siliconPower: AppleSiliconPowerSnapshot,
         thermalFan: ThermalFanSnapshot,
+        sleepBlockers: [SleepBlocker] = [],
         topCPUApps: [AggregatedAppUsage],
         topMemoryApps: [AggregatedAppUsage]
     ) {
@@ -578,6 +634,7 @@ public struct SystemSnapshot: Sendable, Equatable {
         self.batteryPower = batteryPower
         self.siliconPower = siliconPower
         self.thermalFan = thermalFan
+        self.sleepBlockers = sleepBlockers
         self.topCPUApps = topCPUApps
         self.topMemoryApps = topMemoryApps
     }

@@ -12,6 +12,49 @@ public enum MenuBarImageRenderer {
     private static let singleLineFont = NSFont.monospacedDigitSystemFont(ofSize: 11.0, weight: .semibold)
     private static let singleLineDimFont = NSFont.systemFont(ofSize: 10.5, weight: .medium)
 
+    public static func renderSignature(
+        data: MenuBarRenderData,
+        settings: BaroSettings,
+        appearance: NSAppearance
+    ) -> String {
+        let style = settings.menuBarStyle
+        let density = settings.menuBarDensity
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+
+        let cpuBucket = Int(data.cpuPercent.rounded())
+        let memBucket = Int(data.memoryPercent.rounded())
+        let upStr = settings.showMenuNetwork ? ByteFormatter.compactRate(data.uploadBytesPerSec) : ""
+        let downStr = settings.showMenuNetwork ? ByteFormatter.compactRate(data.downloadBytesPerSec) : ""
+        let tempBucket = settings.showMenuTemperature ? (data.temperatureCelsius.map { Int($0.rounded()) } ?? -1) : -99
+        let powerStr = settings.showMenuPower ? (data.isPowerAvailable ? String(format: "%.1f", data.packageWatts) : "--") : ""
+        let sparkBucket = style == .sparkline
+            ? data.cpuSparklinePoints.map { String(Int($0.rounded())) }.joined(separator: ",")
+            : ""
+        let topApp = (style == .breathingDot && data.healthLevel == .elevated) ? (data.topCPUAppPath ?? "") : ""
+
+        return [
+            style.rawValue,
+            density.rawValue,
+            settings.showMenuBarIcon ? "1" : "0",
+            settings.showMenuCPU ? "1" : "0",
+            settings.showMenuMemory ? "1" : "0",
+            settings.showMenuNetwork ? "1" : "0",
+            settings.showMenuTemperature ? "1" : "0",
+            settings.showMenuPower ? "1" : "0",
+            isDark ? "D" : "L",
+            "\(cpuBucket)",
+            "\(memBucket)",
+            data.memoryPressure.rawValue,
+            upStr,
+            downStr,
+            "\(tempBucket)",
+            powerStr,
+            data.healthLevel.rawValue,
+            topApp,
+            sparkBucket
+        ].joined(separator: "|")
+    }
+
     public static func render(
         data: MenuBarRenderData,
         settings: BaroSettings,
@@ -65,83 +108,112 @@ public enum MenuBarImageRenderer {
         }
 
         let size = NSSize(width: totalWidth, height: 22)
-        let image = NSImage(size: size, flipped: false) { bounds in
-            var x = outerPad
+        let image = autoreleasepool { () -> NSImage in
+            let scale: CGFloat = 2
+            let pxW = max(1, Int(ceil(size.width * scale)))
+            let pxH = max(1, Int(ceil(size.height * scale)))
 
-            if showIcon {
-                let iconRect = NSRect(x: x, y: floor((bounds.height - 12.5) / 2.0), width: 12.5, height: 12.5)
-                drawBarometerSymbol(in: iconRect, color: primaryColor)
-                x += 12.5 + iconGap
+            guard let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: pxW,
+                pixelsHigh: pxH,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ) else {
+                return NSImage(size: size)
             }
+            rep.size = size
 
-            switch style {
-            case .compactDualRow:
-                drawCompactDualRow(
-                    startX: x,
-                    bounds: bounds,
-                    groupGap: groupGap,
-                    data: data,
-                    showIcon: showIcon,
-                    showCPU: showCPU,
-                    showMemory: showMemory,
-                    showNetwork: showNetwork,
-                    showTemperature: showTemperature,
-                    showPower: showPower,
-                    primary: primaryColor,
-                    secondary: secondaryColor
-                )
-            case .singleLine:
-                drawSingleLineStyle(
-                    startX: x,
-                    bounds: bounds,
-                    density: density,
-                    data: data,
-                    showCPU: showCPU,
-                    showMemory: showMemory,
-                    showNetwork: showNetwork,
-                    showTemperature: showTemperature,
-                    showPower: showPower,
-                    primary: primaryColor,
-                    secondary: secondaryColor
-                )
-            case .sparkline:
-                drawSparklineStyle(
-                    startX: x,
-                    bounds: bounds,
-                    iconGap: iconGap,
-                    groupGap: groupGap,
-                    data: data,
-                    showMemory: showMemory,
-                    primary: primaryColor,
-                    secondary: secondaryColor
-                )
-            case .miniBars:
-                drawMiniBarsStyle(
-                    startX: x,
-                    bounds: bounds,
-                    iconGap: iconGap,
-                    groupGap: groupGap,
-                    data: data,
-                    showCPU: showCPU,
-                    showMemory: showMemory,
-                    showNetwork: showNetwork,
-                    primary: primaryColor,
-                    secondary: secondaryColor
-                )
-            case .breathingDot:
-                drawBreathingDotStyle(
-                    startX: x,
-                    bounds: bounds,
-                    iconGap: iconGap,
-                    data: data,
-                    primary: primaryColor
-                )
+            NSGraphicsContext.saveGraphicsState()
+            if let ctx = NSGraphicsContext(bitmapImageRep: rep) {
+                NSGraphicsContext.current = ctx
+                ctx.imageInterpolation = .high
+                let bounds = NSRect(origin: .zero, size: size)
+
+                var x = outerPad
+                if showIcon {
+                    let iconRect = NSRect(x: x, y: floor((bounds.height - 12.5) / 2.0), width: 12.5, height: 12.5)
+                    drawBarometerSymbol(in: iconRect, color: primaryColor)
+                    x += 12.5 + iconGap
+                }
+
+                switch style {
+                case .compactDualRow:
+                    drawCompactDualRow(
+                        startX: x,
+                        bounds: bounds,
+                        groupGap: groupGap,
+                        data: data,
+                        showIcon: showIcon,
+                        showCPU: showCPU,
+                        showMemory: showMemory,
+                        showNetwork: showNetwork,
+                        showTemperature: showTemperature,
+                        showPower: showPower,
+                        primary: primaryColor,
+                        secondary: secondaryColor
+                    )
+                case .singleLine:
+                    drawSingleLineStyle(
+                        startX: x,
+                        bounds: bounds,
+                        density: density,
+                        data: data,
+                        showCPU: showCPU,
+                        showMemory: showMemory,
+                        showNetwork: showNetwork,
+                        showTemperature: showTemperature,
+                        showPower: showPower,
+                        primary: primaryColor,
+                        secondary: secondaryColor
+                    )
+                case .sparkline:
+                    drawSparklineStyle(
+                        startX: x,
+                        bounds: bounds,
+                        iconGap: iconGap,
+                        groupGap: groupGap,
+                        data: data,
+                        showMemory: showMemory,
+                        primary: primaryColor,
+                        secondary: secondaryColor
+                    )
+                case .miniBars:
+                    drawMiniBarsStyle(
+                        startX: x,
+                        bounds: bounds,
+                        iconGap: iconGap,
+                        groupGap: groupGap,
+                        data: data,
+                        showCPU: showCPU,
+                        showMemory: showMemory,
+                        showNetwork: showNetwork,
+                        primary: primaryColor,
+                        secondary: secondaryColor
+                    )
+                case .breathingDot:
+                    drawBreathingDotStyle(
+                        startX: x,
+                        bounds: bounds,
+                        iconGap: iconGap,
+                        data: data,
+                        primary: primaryColor
+                    )
+                }
             }
+            NSGraphicsContext.restoreGraphicsState()
 
-            return true
+            let img = NSImage(size: size)
+            img.addRepresentation(rep)
+            img.isTemplate = !hasColorAccent
+            return img
         }
 
-        image.isTemplate = !hasColorAccent
         return image
     }
 

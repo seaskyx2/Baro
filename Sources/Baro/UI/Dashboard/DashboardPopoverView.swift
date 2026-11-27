@@ -11,6 +11,7 @@ public struct DashboardPopoverView: View {
     @State private var expandedMemory = false
     @State private var expandedPower = false
     @State private var expandedDisk = false
+    @State private var copiedSnapshot = false
 
     public init(
         coordinator: SamplingCoordinator,
@@ -122,6 +123,7 @@ public struct DashboardPopoverView: View {
                     if settings.showBatteryPowerCard {
                         BatteryPowerCardView(
                             batteryPower: coordinator.snapshot.batteryPower,
+                            sleepBlockers: coordinator.snapshot.sleepBlockers,
                             previewLaptopMode: settings.previewLaptopBatteryOnDesktop,
                             lang: lang
                         )
@@ -165,6 +167,29 @@ public struct DashboardPopoverView: View {
                 Text("Up \(ByteFormatter.uptime(coordinator.snapshot.uptimeSeconds))")
                     .font(.system(size: 10, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
+
+                Button {
+                    let text = SnapshotExporter.formatPlainText(
+                        hostInfo: coordinator.hostInfo,
+                        snapshot: coordinator.snapshot,
+                        health: coordinator.healthSummary,
+                        lang: lang
+                    )
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    copiedSnapshot = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        copiedSnapshot = false
+                    }
+                } label: {
+                    Image(systemName: copiedSnapshot ? "checkmark.circle.fill" : "doc.on.doc")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(copiedSnapshot ? BaroPalette.batteryHealthy : .secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(BaroL10n.t("复制脱敏系统快照", "Copy Sanitized Snapshot", lang: lang))
 
                 Button(action: onOpenSettings) {
                     Image(systemName: "gearshape")
