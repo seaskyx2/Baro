@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${BARO_VERSION:-1.1.0}"
+VERSION="${BARO_VERSION:-1.1.1}"
 cd "$ROOT_DIR"
 
 echo "[1/5] Generating AppIcon.icns..."

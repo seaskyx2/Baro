@@ -29,14 +29,19 @@ Baro occupies only **1 single menu bar slot**, preventing overlap or ordering is
 * **Right-click**: Open the quick context menu:
   * **Open Baro Dashboard**
   * **Preferences…** (`Command + ,`)
+  * **Menu Bar Style ▸** (instant 1-click switching across all 5 styles)
+  * **Menu Bar Spacing ▸** (Compact / Standard / Relaxed)
+  * **User Guide** / **About Baro**
   * **Quit Baro** (`Command + Q`)
 
-### Three Built-In Menu Bar Styles
-Switch styles anytime in **Preferences → Menu Bar**:
+### Five Menu Bar Display Styles
+Switch anytime via the right-click menu or **Preferences → Menu Bar**, alongside 3 spacing densities (**Compact / Standard / Relaxed**) and the optional barometer icon toggle:
 
-1. **Compact Dual-Row (Default)**: Packs CPU, Memory, Network Upload/Download, Temperature, or Power into a tight two-line capsule (`~102–130pt` wide).
-2. **Sparkline**: Shows a live miniature CPU history curve with percentage alongside a clean memory capsule bar.
-3. **Breathing Dot**: Ultra-minimal status dot + CPU%. When the system enters an elevated load state (e.g., CPU ≥ 75% or critical memory pressure), the icon of the top CPU-consuming app subtly appears next to the dot.
+1. **Compact Dual-Row (Default)**: Tight two-line single-slot capsule showing CPU, Memory, Network Up/Down, Temperature, or Power with zero excess gaps.
+2. **Single Line**: Clean horizontal readout (e.g., `C 14% · M 64% · ↓4.2M`) ideal for external displays.
+3. **Sparkline**: Live miniature CPU history curve paired with a memory capsule bar.
+4. **Mini Bars**: Ultra-compact vertical CPU & Memory bars designed for notched MacBooks.
+5. **Breathing Dot**: Ultra-minimal status dot + CPU%; reveals the top CPU-consuming app icon next to the dot under high load.
 
 ---
 

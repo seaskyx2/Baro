@@ -3,7 +3,9 @@ import Foundation
 
 public enum MenuBarStyle: String, CaseIterable, Codable, Sendable, Identifiable {
     case compactDualRow
+    case singleLine
     case sparkline
+    case miniBars
     case breathingDot
 
     public var id: String { rawValue }
@@ -11,7 +13,9 @@ public enum MenuBarStyle: String, CaseIterable, Codable, Sendable, Identifiable 
     public var title: String {
         switch self {
         case .compactDualRow: return "双行精工"
+        case .singleLine: return "单行清爽"
         case .sparkline: return "微图表"
+        case .miniBars: return "双柱仪表"
         case .breathingDot: return "静默呼吸点"
         }
     }
@@ -19,10 +23,20 @@ public enum MenuBarStyle: String, CaseIterable, Codable, Sendable, Identifiable 
     public var subtitle: String {
         switch self {
         case .compactDualRow: return "单槽位双行紧凑排布，省空间无遮挡"
+        case .singleLine: return "单行横向直读，大屏清晰舒展"
         case .sparkline: return "CPU 实时微曲线 + 内存比例胶囊"
+        case .miniBars: return "极简 CPU / 内存双柱，极省刘海屏空间"
         case .breathingDot: return "平常仅显示状态呼吸点，高压时浮现占用图标"
         }
     }
+}
+
+public enum MenuBarDensity: String, CaseIterable, Codable, Sendable, Identifiable {
+    case compact
+    case standard
+    case relaxed
+
+    public var id: String { rawValue }
 }
 
 public enum MenuBarMetric: String, CaseIterable, Codable, Sendable, Identifiable {
@@ -50,6 +64,7 @@ public final class BaroSettings: ObservableObject {
     private enum Keys {
         static let language = "baro.language"
         static let menuBarStyle = "baro.menuBarStyle"
+        static let menuBarDensity = "baro.menuBarDensity"
         static let showMenuBarIcon = "baro.showMenuBarIcon"
         static let showMenuCPU = "baro.showMenuCPU"
         static let showMenuMemory = "baro.showMenuMemory"
@@ -82,6 +97,10 @@ public final class BaroSettings: ObservableObject {
 
     @Published public var menuBarStyle: MenuBarStyle {
         didSet { defaults.set(menuBarStyle.rawValue, forKey: Keys.menuBarStyle) }
+    }
+
+    @Published public var menuBarDensity: MenuBarDensity {
+        didSet { defaults.set(menuBarDensity.rawValue, forKey: Keys.menuBarDensity) }
     }
 
     @Published public var showMenuBarIcon: Bool {
@@ -170,6 +189,13 @@ public final class BaroSettings: ObservableObject {
             self.menuBarStyle = parsed
         } else {
             self.menuBarStyle = .compactDualRow
+        }
+
+        if let rawDensity = defaults.string(forKey: Keys.menuBarDensity),
+           let parsedDensity = MenuBarDensity(rawValue: rawDensity) {
+            self.menuBarDensity = parsedDensity
+        } else {
+            self.menuBarDensity = .compact
         }
 
         self.showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true

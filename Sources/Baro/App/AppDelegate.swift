@@ -112,6 +112,48 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         menu.addItem(.separator())
 
+        let styleParent = NSMenuItem(
+            title: BaroL10n.t("菜单栏模式", "Menu Bar Style", lang: lang),
+            action: nil,
+            keyEquivalent: ""
+        )
+        let styleSubmenu = NSMenu()
+        for style in MenuBarStyle.allCases {
+            let item = NSMenuItem(
+                title: BaroL10n.menuBarStyleTitle(style, lang: lang),
+                action: #selector(selectMenuBarStyle(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = style.rawValue
+            item.state = settings.menuBarStyle == style ? .on : .off
+            styleSubmenu.addItem(item)
+        }
+        styleParent.submenu = styleSubmenu
+        menu.addItem(styleParent)
+
+        let densityParent = NSMenuItem(
+            title: BaroL10n.t("菜单栏间距", "Menu Bar Spacing", lang: lang),
+            action: nil,
+            keyEquivalent: ""
+        )
+        let densitySubmenu = NSMenu()
+        for density in MenuBarDensity.allCases {
+            let item = NSMenuItem(
+                title: BaroL10n.menuBarDensityTitle(density, lang: lang),
+                action: #selector(selectMenuBarDensity(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = density.rawValue
+            item.state = settings.menuBarDensity == density ? .on : .off
+            densitySubmenu.addItem(item)
+        }
+        densityParent.submenu = densitySubmenu
+        menu.addItem(densityParent)
+
+        menu.addItem(.separator())
+
         let guideItem = NSMenuItem(
             title: BaroL10n.t("使用指南", "User Guide", lang: lang),
             action: #selector(openUserGuideFromMenu),
@@ -151,6 +193,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     @objc private func openSettingsFromMenu() {
         openSettingsWindow()
+    }
+
+    @objc private func selectMenuBarStyle(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let chosen = MenuBarStyle(rawValue: raw) else { return }
+        settings.menuBarStyle = chosen
+        updateStatusCanvas(with: coordinator.currentMenuBarRenderData())
+    }
+
+    @objc private func selectMenuBarDensity(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let chosen = MenuBarDensity(rawValue: raw) else { return }
+        settings.menuBarDensity = chosen
+        updateStatusCanvas(with: coordinator.currentMenuBarRenderData())
     }
 
     @objc private func openUserGuideFromMenu() {

@@ -100,6 +100,13 @@ public struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                Picker(BaroL10n.t("间距密度", "Spacing Density", lang: lang), selection: $settings.menuBarDensity) {
+                    ForEach(MenuBarDensity.allCases) { density in
+                        Text(BaroL10n.menuBarDensityTitle(density, lang: lang)).tag(density)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 Toggle(BaroL10n.t("在菜单栏左侧显示晴雨表图标", "Show barometer icon in menu bar", lang: lang), isOn: $settings.showMenuBarIcon)
             }
 

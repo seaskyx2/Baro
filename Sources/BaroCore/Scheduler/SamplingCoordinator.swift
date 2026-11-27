@@ -405,8 +405,9 @@ public final class SamplingCoordinator: ObservableObject {
 
         let hot = isPanelOpen
         let prev = latestSnapshot
-        let needCPU = hot || settings.showMenuCPU || settings.menuBarStyle != .compactDualRow
-        let needMemory = hot || settings.showMenuMemory || settings.menuBarStyle == .sparkline
+        let style = settings.menuBarStyle
+        let needCPU = hot || settings.showMenuCPU || style == .sparkline || style == .miniBars || style == .breathingDot
+        let needMemory = hot || settings.showMenuMemory || style == .sparkline || style == .miniBars
         let needNetwork = hot || settings.showMenuNetwork
         let needThermal = hot || settings.showMenuTemperature
         let needPower = hot || settings.showMenuPower

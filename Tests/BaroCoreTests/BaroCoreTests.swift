@@ -180,6 +180,10 @@ final class BaroCoreTests: XCTestCase {
         XCTAssertEqual(BaroL10n.resolve(.en, preferredLanguages: ["zh-Hans-CN"]), .en)
         XCTAssertEqual(BaroL10n.resolve(.system, preferredLanguages: ["zh-Hans-CN"]), .zhHans)
         XCTAssertEqual(BaroL10n.resolve(.system, preferredLanguages: ["en-US"]), .en)
+        XCTAssertEqual(MenuBarStyle.allCases.count, 5)
+        XCTAssertEqual(MenuBarDensity.allCases.count, 3)
+        XCTAssertEqual(BaroL10n.menuBarStyleTitle(.miniBars, lang: .zhHans), "双柱仪表")
+        XCTAssertEqual(BaroL10n.menuBarDensityTitle(.compact, lang: .en), "Compact")
 
         let collector = ProcessAggregatorCollector()
         _ = collector.sample(limit: 5)
