@@ -33,11 +33,25 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         coordinator.start()
 
         settings.objectWillChange
-            .debounce(for: .milliseconds(80), scheduler: RunLoop.main)
+            .receive(on: RunLoop.main)
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
             .sink { [weak self] _ in
                 self?.refreshStatusItemWidth()
             }
             .store(in: &cancellables)
+
+        coordinator.$healthSummary
+            .map(\.level)
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refreshStatusItemWidth()
+            }
+            .store(in: &cancellables)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.refreshStatusItemWidth()
+        }
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
@@ -66,11 +80,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     private func refreshStatusItemWidth() {
         guard let button = statusItem.button, let hosting = statusHostingView else { return }
+        hosting.layoutSubtreeIfNeeded()
         let fitting = hosting.fittingSize
-        let targetWidth = max(32, ceil(fitting.width))
-        if abs(targetWidth - statusItem.length) >= 3 || statusItem.length <= 0 {
-            hosting.frame = NSRect(x: 0, y: 0, width: targetWidth, height: 22)
-            button.frame = NSRect(x: 0, y: 0, width: targetWidth, height: 22)
+        let targetWidth = max(32, ceil(fitting.width) + 4)
+        let targetHeight = max(22, button.bounds.height)
+        if abs(targetWidth - statusItem.length) >= 2 || statusItem.length <= 0 {
+            hosting.frame = NSRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
+            button.frame = NSRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
             statusItem.length = targetWidth
         }
     }
@@ -176,6 +192,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         positionPanelBelowStatusItem(panel)
         panel.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async { [weak self] in
+            self?.resizePanelKeepingTopAnchor()
+        }
         installDismissMonitors()
     }
 

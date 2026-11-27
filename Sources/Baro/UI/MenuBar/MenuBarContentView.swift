@@ -24,6 +24,7 @@ public struct MenuBarContentView: View {
         }
         .padding(.horizontal, 6)
         .frame(height: 22)
+        .fixedSize(horizontal: true, vertical: false)
         .contentShape(Rectangle())
     }
 
@@ -50,14 +51,18 @@ public struct MenuBarContentView: View {
                         if items.contains(.cpu) {
                             compactKVRow(
                                 label: "CPU",
+                                labelWidth: 23,
                                 value: "\(Int(coordinator.snapshot.cpu.totalUsagePercent.rounded()))%",
+                                valueWidth: 30,
                                 color: BaroPalette.usageColor(percent: coordinator.snapshot.cpu.totalUsagePercent)
                             )
                         }
                         if items.contains(.memory) {
                             compactKVRow(
                                 label: "MEM",
+                                labelWidth: 23,
                                 value: "\(Int(coordinator.snapshot.memory.usedPercent.rounded()))%",
+                                valueWidth: 30,
                                 color: coordinator.snapshot.memory.pressure == .normal ? .primary : BaroPalette.healthColor(for: .elevated)
                             )
                         }
@@ -68,12 +73,16 @@ public struct MenuBarContentView: View {
                     VStack(alignment: .trailing, spacing: -1) {
                         compactKVRow(
                             label: "↑",
+                            labelWidth: 9,
                             value: ByteFormatter.compactRate(coordinator.snapshot.network.uploadBytesPerSec),
+                            valueWidth: 36,
                             color: .primary
                         )
                         compactKVRow(
                             label: "↓",
+                            labelWidth: 9,
                             value: ByteFormatter.compactRate(coordinator.snapshot.network.downloadBytesPerSec),
+                            valueWidth: 36,
                             color: .primary
                         )
                     }
@@ -88,6 +97,8 @@ public struct MenuBarContentView: View {
                                 .foregroundStyle(
                                     coordinator.snapshot.thermalFan.primaryTemperature.map { BaroPalette.thermalColor(celsius: $0) } ?? .secondary
                                 )
+                                .frame(width: 38, alignment: .trailing)
+                                .lineLimit(1)
                         }
                         if items.contains(.power) {
                             let powerText = coordinator.snapshot.siliconPower.isAvailable
@@ -96,6 +107,8 @@ public struct MenuBarContentView: View {
                             Text(powerText)
                                 .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                                 .foregroundStyle(.secondary)
+                                .frame(width: 38, alignment: .trailing)
+                                .lineLimit(1)
                         }
                     }
                 }
@@ -103,14 +116,22 @@ public struct MenuBarContentView: View {
         )
     }
 
-    private func compactKVRow(label: String, value: String, color: Color) -> some View {
+    private func compactKVRow(
+        label: String,
+        labelWidth: CGFloat,
+        value: String,
+        valueWidth: CGFloat,
+        color: Color
+    ) -> some View {
         HStack(spacing: 2) {
             Text(label)
                 .font(.system(size: 8.5, weight: .medium))
                 .foregroundStyle(.secondary)
+                .frame(width: labelWidth, alignment: .leading)
             Text(value)
                 .font(.system(size: 9.5, weight: .semibold).monospacedDigit())
                 .foregroundStyle(color)
+                .frame(width: valueWidth, alignment: .trailing)
         }
         .lineLimit(1)
     }
@@ -123,6 +144,7 @@ public struct MenuBarContentView: View {
                 .frame(width: 24, height: 13)
             Text("\(Int(coordinator.snapshot.cpu.totalUsagePercent.rounded()))%")
                 .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
+                .frame(width: 30, alignment: .trailing)
 
             if settings.showMenuMemory {
                 let memRatio = min(1.0, max(0.0, coordinator.snapshot.memory.usedPercent / 100.0))
@@ -137,6 +159,7 @@ public struct MenuBarContentView: View {
                 Text("\(Int(coordinator.snapshot.memory.usedPercent.rounded()))%")
                     .font(.system(size: 10.5, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .frame(width: 30, alignment: .trailing)
             }
         }
     }
@@ -162,6 +185,7 @@ public struct MenuBarContentView: View {
 
             Text("\(cpu)%")
                 .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
+                .frame(width: 30, alignment: .trailing)
         }
     }
 
