@@ -45,20 +45,28 @@ public struct BaroLiquidGlassContainer: ViewModifier {
     }
 
     public func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             content
                 .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
         } else {
-            content
-                .background(
-                    .ultraThinMaterial,
-                    in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.6)
-                )
+            fallbackGlass(content)
         }
+        #else
+        fallbackGlass(content)
+        #endif
+    }
+
+    private func fallbackGlass(_ content: Content) -> some View {
+        content
+            .background(
+                .ultraThinMaterial,
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.6)
+            )
     }
 }
 

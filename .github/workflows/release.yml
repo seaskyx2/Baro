@@ -1,0 +1,73 @@
+name: Release Baro
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (without v prefix, e.g. 1.0.1)'
+        required: false
+        default: '1.0.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build, Test, and Release (Apple Silicon)
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          sw_vers
+          swift --version
+
+      - name: Run unit tests
+        run: swift test
+
+      - name: Static read-only audit
+        run: |
+          if grep -rnE "kill\(|kSMCWriteKey|removeItem|unlink\(|AuthorizationExecuteWithPrivileges|powermetrics" Sources/; then
+            echo "Intrusive API detected!" >&2
+            exit 1
+          fi
+          echo "Static read-only audit passed."
+
+      - name: Determine version
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="v${VERSION}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Baro.app and zip package
+        run: |
+          chmod +x scripts/build_app.sh scripts/generate_icon.py
+          BARO_VERSION="${{ steps.meta.outputs.version }}" ./scripts/build_app.sh
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          ZIP_FILE="dist/Baro-v${{ steps.meta.outputs.version }}-macOS-arm64.zip"
+          SHA_FILE="${ZIP_FILE}.sha256"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP_FILE" "$SHA_FILE" --clobber
+          else
+            gh release create "$TAG" "$ZIP_FILE" "$SHA_FILE" \
+              --title "Baro ${TAG}" \
+              --notes "Pure read-only, zero-intrusion system status monitor for macOS (Apple Silicon)."
+          fi

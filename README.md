@@ -25,7 +25,18 @@ Baro（取自 *Barometer* 晴雨表与 *Menu Bar* 菜单栏的双关）坚持**�
 - **按 App 归并资源榜**：将散落的 Helper / Renderer 子进程自动合并到父级 `.app` 下，一眼定位 CPU 或内存消耗元凶。
 - **人话健康摘要**：顶部胶囊用简洁中文提示当前系统状态（如 `系统平静 · 零交换压力`）。
 
-## 构建与运行
+## 下载与安装（成品包）
+
+1. 前往 [GitHub Releases](https://github.com/seaskyx2/Baro/releases) 下载最新的 `Baro-v*-macOS-arm64.zip` 并解压。
+2. 将 `Baro.app` 拖入 `/Applications`（应用程序）文件夹即可。
+3. 由于本项目为开源自签（ad-hoc 签名，未购买 Apple 付费公证），首次双击如遇到系统安全提示，可在终端运行以下命令解除下载隔离属性后正常打开：
+
+```bash
+xattr -cr /Applications/Baro.app
+open /Applications/Baro.app
+```
+
+## 从源码构建与运行
 
 ```bash
 # 运行单元测试
