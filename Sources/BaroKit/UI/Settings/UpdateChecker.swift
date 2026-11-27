@@ -20,7 +20,7 @@ public final class UpdateChecker: ObservableObject {
         guard state != .checking else { return }
         state = .checking
 
-        let currentVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.2.0"
+        let currentVersion = BaroBuildInfo.currentVersion
 
         Task {
             do {
@@ -60,9 +60,12 @@ public final class UpdateChecker: ObservableObject {
         }
     }
 
-    public static func isVersionNewer(remote: String, current: String) -> Bool {
-        let rParts = remote.split(separator: ".").compactMap { Int($0) }
-        let cParts = current.split(separator: ".").compactMap { Int($0) }
+    nonisolated public static func isVersionNewer(remote: String, current: String) -> Bool {
+        let cleanRemote = remote.trimmingCharacters(in: CharacterSet(charactersIn: "vV \t\n"))
+        let cleanCurrent = current.trimmingCharacters(in: CharacterSet(charactersIn: "vV \t\n"))
+        let rParts = cleanRemote.split(separator: ".").compactMap { Int($0) }
+        let cParts = cleanCurrent.split(separator: ".").compactMap { Int($0) }
+        guard !rParts.isEmpty, !cParts.isEmpty else { return false }
         let count = max(rParts.count, cParts.count)
         for i in 0..<count {
             let r = i < rParts.count ? rParts[i] : 0

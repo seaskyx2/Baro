@@ -5,13 +5,15 @@ import SwiftUI
 
 public struct SettingsView: View {
     @ObservedObject public var settings: BaroSettings
+    @ObservedObject public var hotKeyManager: GlobalHotKeyManager
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var launchStatusMessage: String?
 
-    public init(settings: BaroSettings) {
+    public init(settings: BaroSettings, hotKeyManager: GlobalHotKeyManager) {
         self.settings = settings
+        self.hotKeyManager = hotKeyManager
     }
 
     public var body: some View {
@@ -68,6 +70,16 @@ public struct SettingsView: View {
                         ForEach(GlobalHotKeyPreset.allCases) { preset in
                             Text(preset.label).tag(preset)
                         }
+                    }
+
+                    if hotKeyManager.registrationFailed {
+                        Text(BaroL10n.t(
+                            "提示：当前快捷键组合已被其他应用占用，请切换另一组快捷键。",
+                            "Shortcut is already in use by another app. Try a different preset.",
+                            lang: lang
+                        ))
+                        .font(.caption)
+                        .foregroundStyle(BaroPalette.healthColor(for: .moderate))
                     }
                 }
             }

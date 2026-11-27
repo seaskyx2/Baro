@@ -12,7 +12,7 @@ public struct AboutBaroView: View {
 
     public var body: some View {
         let lang = settings.resolvedLanguage
-        let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.2.0"
+        let version = BaroBuildInfo.currentVersion
 
         VStack(spacing: 14) {
             if let icon = NSApp.applicationIconImage {
@@ -42,7 +42,7 @@ public struct AboutBaroView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 promiseRow(icon: "eye", text: BaroL10n.t("绝对只读：无清理、无强杀进程、无硬件改写", "Read-Only: no cleaner, no kill switch, no hardware writes", lang: lang))
-                promiseRow(icon: "lock.shield", text: BaroL10n.t("零隐私弹窗：不申请定位与蓝牙，平时零联网", "Zero Prompts: no Location/Bluetooth, offline by default", lang: lang))
+                promiseRow(icon: "lock.shield", text: BaroL10n.t("零隐私弹窗：不申请定位与蓝牙，默认不联网", "Zero Prompts: no Location/Bluetooth, offline by default", lang: lang))
                 promiseRow(icon: "bolt.batteryblock", text: BaroL10n.t("极简轻巧：原生模板图自绘，息屏自动休眠", "Ultra-Light: native template rendering, sleep-aware", lang: lang))
             }
             .padding(12)

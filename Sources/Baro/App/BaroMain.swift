@@ -1,5 +1,6 @@
 import AppKit
 import BaroCore
+import BaroKit
 import Foundation
 
 @main
@@ -51,7 +52,7 @@ struct BaroMain {
             snap.cpu.loadAverage5m,
             snap.cpu.loadAverage15m
         ))
-        print("Memory     : Used \(ByteFormatter.memorySize(snap.memory.usedBytes)) (\(String(format: "%.1f%%", snap.memory.usedPercent))) | App \(ByteFormatter.memorySize(snap.memory.appBytes)) | Wired \(ByteFormatter.memorySize(snap.memory.wiredBytes)) | Compressed \(ByteFormatter.memorySize(snap.memory.compressedBytes)) | Swap \(ByteFormatter.memorySize(snap.memory.swapUsedBytes)) | Pressure: \(snap.memory.pressure.displayName)")
+        print("Memory     : Used \(ByteFormatter.memorySize(snap.memory.usedBytes)) (\(String(format: "%.1f%%", snap.memory.usedPercent))) | App \(ByteFormatter.memorySize(snap.memory.appBytes)) | Wired \(ByteFormatter.memorySize(snap.memory.wiredBytes)) | Compressed \(ByteFormatter.memorySize(snap.memory.compressedBytes)) | Swap \(ByteFormatter.memorySize(snap.memory.swapUsedBytes)) | Pressure: \(BaroL10n.pressureDisplayName(snap.memory.pressure, lang: .en))")
         print("Network    : \(snap.network.primaryInterface) (\(snap.network.localIPAddress)) | Down \(ByteFormatter.detailedRate(snap.network.downloadBytesPerSec)) | Up \(ByteFormatter.detailedRate(snap.network.uploadBytesPerSec))")
         if let vol = snap.disk.primaryVolume {
             var diskExtra = ""
@@ -61,7 +62,8 @@ struct BaroMain {
             print("Disk       : \(vol.name) Free \(ByteFormatter.diskSize(vol.availableBytes)) / \(ByteFormatter.diskSize(vol.totalBytes)) (\(String(format: "%.1f%%", vol.usedPercent)) used) | Read \(ByteFormatter.detailedRate(snap.disk.readBytesPerSec)) | Write \(ByteFormatter.detailedRate(snap.disk.writeBytesPerSec))\(diskExtra)")
         }
         print("SleepLock  : \(snap.sleepBlockers.isEmpty ? "None" : snap.sleepBlockers.map { "\($0.processName) (\($0.assertionType))" }.joined(separator: ", "))")
-        print("Power/Batt : InternalBattery=\(snap.batteryPower.hasInternalBattery) | Source=\(snap.batteryPower.powerSourceName) | HID Peripherals=\(snap.batteryPower.peripherals.count)")
+        let sourceLabel = BaroL10n.powerSourceTitle(snap.batteryPower.powerSource, lang: .en)
+        print("Power/Batt : InternalBattery=\(snap.batteryPower.hasInternalBattery) | Source=\(sourceLabel) | HID Peripherals=\(snap.batteryPower.peripherals.count)")
         if snap.siliconPower.isAvailable {
             print(String(
                 format: "IOReport   : Package %.2fW (CPU %.2fW / GPU %.2fW / ANE %.2fW / DRAM %.2fW) | GPU %.1f%%",

@@ -11,6 +11,10 @@ let package = Package(
             name: "BaroCore",
             targets: ["BaroCore"]
         ),
+        .library(
+            name: "BaroKit",
+            targets: ["BaroKit"]
+        ),
         .executable(
             name: "Baro",
             targets: ["Baro"]
@@ -30,8 +34,15 @@ let package = Package(
             dependencies: ["CNVMeSmart"],
             linkerSettings: [
                 .linkedFramework("IOKit"),
+                .linkedFramework("Foundation")
+            ]
+        ),
+        .target(
+            name: "BaroKit",
+            dependencies: ["BaroCore"],
+            linkerSettings: [
                 .linkedFramework("AppKit"),
-                .linkedFramework("Foundation"),
+                .linkedFramework("SwiftUI"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("UserNotifications"),
                 .linkedFramework("Carbon")
@@ -39,11 +50,11 @@ let package = Package(
         ),
         .executableTarget(
             name: "Baro",
-            dependencies: ["BaroCore"]
+            dependencies: ["BaroCore", "BaroKit"]
         ),
         .testTarget(
             name: "BaroCoreTests",
-            dependencies: ["BaroCore"]
+            dependencies: ["BaroCore", "BaroKit"]
         )
     ]
 )

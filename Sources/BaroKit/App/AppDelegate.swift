@@ -34,6 +34,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var distributedObservers: [NSObjectProtocol] = []
     private var cancellables = Set<AnyCancellable>()
 
+    public override init() {
+        super.init()
+    }
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
         if terminateIfDuplicateInstance() {
             return
@@ -497,7 +501,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
 
         let lang = settings.resolvedLanguage
-        let hosting = NSHostingController(rootView: SettingsView(settings: settings))
+        let hosting = NSHostingController(rootView: SettingsView(settings: settings, hotKeyManager: hotKeyManager))
         let window = NSWindow(contentViewController: hosting)
         window.title = BaroL10n.t("Baro 偏好设置", "Baro Preferences", lang: lang)
         window.styleMask = [.titled, .closable, .miniaturizable]

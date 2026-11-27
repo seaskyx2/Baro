@@ -1,6 +1,16 @@
 import Darwin
 import Foundation
 
+public struct ProcessIdentity: Hashable, Sendable {
+    public let pid: Int32
+    public let startAbstime: UInt64
+
+    public init(pid: Int32, startAbstime: UInt64) {
+        self.pid = pid
+        self.startAbstime = startAbstime
+    }
+}
+
 public struct RawProcessSample: Sendable, Equatable {
     public let pid: Int32
     public let executablePath: String
@@ -23,12 +33,13 @@ public struct RawProcessSample: Sendable, Equatable {
     }
 }
 
-/// 仅在下拉面板展开（热态）或呼吸点高压检测时触发：带 PID 路径与 Bundle 元数据缓存，大幅压低 CPU 占用
+/// 仅在下拉面板展开（热态）或灵动圆环高压检测时触发：
+/// 采用 `(pid, startAbstime)` 复合身份键缓存路径与 CPU 基线，既大幅压低扫描开销，又防止 PID 复用串号。
 public final class ProcessAggregatorCollector: @unchecked Sendable {
     private let lock = NSLock()
-    private var previousCPUNanosByPID: [Int32: UInt64] = [:]
+    private var previousCPUNanosByIdentity: [ProcessIdentity: UInt64] = [:]
     private var previousTimestamp: Date?
-    private var pidPathCache: [Int32: (path: String, fallbackName: String)] = [:]
+    private var pathCacheByIdentity: [ProcessIdentity: (path: String, fallbackName: String)] = [:]
     private var bundleMetaCache: [String: (name: String, bundleId: String?)] = [:]
     private let timebaseNumer: UInt64
     private let timebaseDenom: UInt64
@@ -42,9 +53,9 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
 
     public func resetBaseline() {
         lock.lock()
-        previousCPUNanosByPID.removeAll()
+        previousCPUNanosByIdentity.removeAll()
         previousTimestamp = nil
-        pidPathCache.removeAll()
+        pathCacheByIdentity.removeAll()
         lock.unlock()
     }
 
@@ -64,17 +75,16 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
             return (dt > 0.05 && dt < 30.0) ? (dt * 1_000_000_000.0) : nil
         }
 
-        var nextCPUNanos: [Int32: UInt64] = [:]
+        var nextCPUNanos: [ProcessIdentity: UInt64] = [:]
         nextCPUNanos.reserveCapacity(pidCount)
 
-        var alivePIDs = Set<Int32>()
-        alivePIDs.reserveCapacity(pidCount)
+        var aliveIdentities = Set<ProcessIdentity>()
+        aliveIdentities.reserveCapacity(pidCount)
 
         var rawSamples: [RawProcessSample] = []
         rawSamples.reserveCapacity(pidCount)
 
-        for idx in 0..<pidCount {
-            let pid = pids[idx]
+        for pid in pids {
             guard pid > 0 else { continue }
 
             var taskInfo = proc_taskinfo()
@@ -82,36 +92,46 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
             let gotTask = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &taskInfo, taskInfoSize)
             guard gotTask == taskInfoSize else { continue }
 
-            alivePIDs.insert(pid)
-
-            let totalTicks = taskInfo.pti_total_user &+ taskInfo.pti_total_system
-            let totalNanos = (totalTicks / timebaseDenom) * timebaseNumer
-                + ((totalTicks % timebaseDenom) * timebaseNumer) / timebaseDenom
-            nextCPUNanos[pid] = totalNanos
-
-            var cpuPercent = 0.0
-            if let dtNanos, let prevNanos = previousCPUNanosByPID[pid], totalNanos >= prevNanos {
-                cpuPercent = Double(totalNanos - prevNanos) / dtNanos * 100.0
-            }
-
             var rusage = rusage_info_v4()
             let rusageResult = withUnsafeMutablePointer(to: &rusage) { ptr -> Int32 in
                 ptr.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { reboundPtr in
                     proc_pid_rusage(pid, RUSAGE_INFO_V4, reboundPtr)
                 }
             }
-            let memoryBytes: UInt64 = rusageResult == 0
-                ? rusage.ri_phys_footprint
-                : UInt64(taskInfo.pti_resident_size)
+
+            let startTag: UInt64
+            let memoryBytes: UInt64
+            if rusageResult == 0 {
+                startTag = rusage.ri_proc_start_abstime
+                memoryBytes = rusage.ri_phys_footprint
+            } else {
+                startTag = readFallbackStartTime(pid: pid)
+                memoryBytes = UInt64(taskInfo.pti_resident_size)
+            }
+
+            let identity = ProcessIdentity(pid: pid, startAbstime: startTag)
+            aliveIdentities.insert(identity)
+
+            let totalTicks = taskInfo.pti_total_user &+ taskInfo.pti_total_system
+            let totalNanos = (totalTicks / timebaseDenom) * timebaseNumer
+                + ((totalTicks % timebaseDenom) * timebaseNumer) / timebaseDenom
+            nextCPUNanos[identity] = totalNanos
+
+            let cpuPercent = Self.computeCPUDeltaPercent(
+                identity: identity,
+                currentNanos: totalNanos,
+                previousNanosByIdentity: previousCPUNanosByIdentity,
+                dtNanos: dtNanos
+            )
 
             let cachedInfo: (path: String, fallbackName: String)
-            if let hit = pidPathCache[pid] {
+            if let hit = pathCacheByIdentity[identity] {
                 cachedInfo = hit
             } else {
                 let path = readProcessPath(pid: pid)
                 let fallback = path.isEmpty ? "PID \(pid)" : URL(fileURLWithPath: path).lastPathComponent
                 let entry = (path: path, fallbackName: fallback)
-                pidPathCache[pid] = entry
+                pathCacheByIdentity[identity] = entry
                 cachedInfo = entry
             }
 
@@ -126,15 +146,15 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
             )
         }
 
-        // 淘汰已退出进程的缓存，保持内存零增长
-        if pidPathCache.count > alivePIDs.count + 32 {
-            pidPathCache = pidPathCache.filter { alivePIDs.contains($0.key) }
+        // 淘汰已退出或已更换启动时间的进程缓存，保持内存零增长
+        if pathCacheByIdentity.count > aliveIdentities.count + 32 {
+            pathCacheByIdentity = pathCacheByIdentity.filter { aliveIdentities.contains($0.key) }
         }
         if bundleMetaCache.count > 256 {
             bundleMetaCache.removeAll()
         }
 
-        previousCPUNanosByPID = nextCPUNanos
+        previousCPUNanosByIdentity = nextCPUNanos
         previousTimestamp = now
 
         let aggregated = Self.aggregateProcesses(rawSamples) { appPath in
@@ -151,6 +171,20 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
         return (topCPU, topMemory)
     }
 
+    public static func computeCPUDeltaPercent(
+        identity: ProcessIdentity,
+        currentNanos: UInt64,
+        previousNanosByIdentity: [ProcessIdentity: UInt64],
+        dtNanos: Double?
+    ) -> Double {
+        guard let dtNanos, dtNanos > 0,
+              let prevNanos = previousNanosByIdentity[identity],
+              currentNanos >= prevNanos else {
+            return 0.0
+        }
+        return Double(currentNanos - prevNanos) / dtNanos * 100.0
+    }
+
     /// 列出全部 PID。注意：`proc_listallpids` 的返回值是「PID 个数」而非字节数
     /// （libproc 内部已将 `proc_listpids` 的字节数除以 sizeof(int)），不能再除以 stride。
     public static func listAllPIDs() -> [pid_t] {
@@ -160,6 +194,15 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
         let returnedCount = proc_listallpids(&buffer, Int32(buffer.count * MemoryLayout<pid_t>.stride))
         guard returnedCount > 0 else { return [] }
         return buffer.prefix(min(Int(returnedCount), buffer.count)).filter { $0 > 0 }
+    }
+
+    private func readFallbackStartTime(pid: Int32) -> UInt64 {
+        var bsdInfo = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.stride)
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsdInfo, size) == size {
+            return (bsdInfo.pbi_start_tvsec &* 1_000_000) &+ bsdInfo.pbi_start_tvusec
+        }
+        return 0
     }
 
     private func readProcessPath(pid: Int32) -> String {

@@ -28,16 +28,18 @@ Baro (*Barometer* + *Menu Bar*) is strictly **Read-Only by Construction**:
 - **Parent-App Aggregated Top Processes**: Merges scattered Helper/Renderer subprocesses under their parent `.app` bundle to pinpoint CPU and memory hogs cleanly.
 - **Plain-Language Health Summary**: Concise status pill summarizing system state at a glance.
 
-## Comparison
+## Design Positioning
 
-| Feature | **Baro** | Stats | AirStats | iStat Menus |
+Different macOS monitors serve different needs. Baro focuses strictly on **pure read-only, single-process, zero-permission-prompt** monitoring:
+
+| Dimension | **Baro** | Stats | AirStats | iStat Menus |
 | :--- | :---: | :---: | :---: | :---: |
-| Open Source & Free | ✅ MIT | ✅ MIT | ✅ | ❌ Paid |
-| Pure Read-Only (No Cleaner / Fan Write / Helper) | ✅ | ❌ | ✅ | ❌ |
-| Zero Location / Bluetooth Permission Prompts | ✅ | ⚠️ | ✅ | ⚠️ |
-| Single-Slot 5 Styles (Notch-Safe) | ✅ | ⚠️ Multi-item | ⚠️ | ✅ |
-| Non-root NVMe TBW + Sleep Blocker Detection | ✅ | ⚠️ | ❌ | ✅ |
-| Idle Panel Memory Release & Render Deduplication | ✅ | ❌ | ✅ | ✅ |
+| License | MIT | MIT | Open Source | Commercial |
+| Design Scope | Pure read-only single process | Full modular suite (with optional controls & widgets) | Minimalist readout | Comprehensive pro suite |
+| Zero Location / Bluetooth Prompts | ✅ | Depends on enabled modules | ✅ | Depends on enabled modules |
+| Single-Slot 5 Precision Styles (Notch-Safe) | ✅ | Multi-item modules | Compact single item | ✅ |
+| Non-root Power + NVMe TBW + Sleep Blocker Notice | ✅ | Power & SMART supported | Essential vitals | ✅ |
+| Idle Panel Memory Release & Render Deduplication | ✅ | Persistent views | ✅ | ✅ |
 
 ## Download & Install
 

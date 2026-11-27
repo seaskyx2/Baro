@@ -172,7 +172,7 @@ public final class AppleSiliconPowerCollector: @unchecked Sendable {
         )
     }
 
-    static func convertEnergyToWatts(value: Double, unitLabel: String, durationSeconds: Double) -> Double {
+    public static func convertEnergyToWatts(value: Double, unitLabel: String, durationSeconds: Double) -> Double {
         guard durationSeconds > 0 else { return 0 }
         let normalized = unitLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         let joules: Double

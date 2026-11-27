@@ -313,6 +313,12 @@ public struct HIDPeripheralBattery: Sendable, Equatable, Identifiable {
     }
 }
 
+public enum PowerSourceKind: String, Codable, Sendable, Equatable {
+    case acPower
+    case powerAdapter
+    case internalBattery
+}
+
 public struct BatteryPowerSnapshot: Sendable, Equatable {
     public var hasInternalBattery: Bool
     public var chargePercent: Double
@@ -324,7 +330,7 @@ public struct BatteryPowerSnapshot: Sendable, Equatable {
     public var temperatureCelsius: Double?
     public var timeRemainingMinutes: Int?
     public var adapterWatts: Int?
-    public var powerSourceName: String
+    public var powerSource: PowerSourceKind
     public var peripherals: [HIDPeripheralBattery]
 
     public static let empty = BatteryPowerSnapshot(
@@ -338,7 +344,7 @@ public struct BatteryPowerSnapshot: Sendable, Equatable {
         temperatureCelsius: nil,
         timeRemainingMinutes: nil,
         adapterWatts: nil,
-        powerSourceName: "交流电源",
+        powerSource: .acPower,
         peripherals: []
     )
 
@@ -355,7 +361,7 @@ public struct BatteryPowerSnapshot: Sendable, Equatable {
             temperatureCelsius: 31.4,
             timeRemainingMinutes: 28,
             adapterWatts: 70,
-            powerSourceName: "电源适配器",
+            powerSource: .powerAdapter,
             peripherals: peripherals.isEmpty ? [
                 HIDPeripheralBattery(name: "Magic Mouse", percent: 86),
                 HIDPeripheralBattery(name: "Magic Keyboard", percent: 92)
@@ -374,7 +380,7 @@ public struct BatteryPowerSnapshot: Sendable, Equatable {
         temperatureCelsius: Double?,
         timeRemainingMinutes: Int?,
         adapterWatts: Int?,
-        powerSourceName: String,
+        powerSource: PowerSourceKind,
         peripherals: [HIDPeripheralBattery]
     ) {
         self.hasInternalBattery = hasInternalBattery
@@ -387,7 +393,7 @@ public struct BatteryPowerSnapshot: Sendable, Equatable {
         self.temperatureCelsius = temperatureCelsius
         self.timeRemainingMinutes = timeRemainingMinutes
         self.adapterWatts = adapterWatts
-        self.powerSourceName = powerSourceName
+        self.powerSource = powerSource
         self.peripherals = peripherals
     }
 }

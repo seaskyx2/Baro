@@ -82,4 +82,12 @@ public enum BaroL10n {
         case .critical: return t("紧张", "Critical", lang: lang)
         }
     }
+
+    public static func powerSourceTitle(_ kind: PowerSourceKind, lang: ResolvedLanguage) -> String {
+        switch kind {
+        case .acPower: return t("交流电源", "AC Power", lang: lang)
+        case .powerAdapter: return t("电源适配器", "Power Adapter", lang: lang)
+        case .internalBattery: return t("内置电池", "Internal Battery", lang: lang)
+        }
+    }
 }

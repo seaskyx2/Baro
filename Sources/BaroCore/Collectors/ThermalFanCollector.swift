@@ -217,7 +217,8 @@ public final class ReadOnlySMCClient: @unchecked Sendable {
     private let kSMCGetKeyInfoCmd: UInt8 = 9
 
     private var connection: io_connect_t = 0
-    private var keyInfoCache: [UInt32: SMCKeyInfo] = [:]
+    /// 含负向缓存：当键在当前芯片上不存在时缓存为 `.some(nil)`，避免每次采样重复发起内核查询
+    private var keyInfoCache: [UInt32: SMCKeyInfo?] = [:]
 
     private static let candidateTemperatureKeys: [(key: String, label: String)] = [
         ("Tp01", "CPU P-Core 1"),
@@ -348,20 +349,32 @@ public final class ReadOnlySMCClient: @unchecked Sendable {
         return Self.decodeSMCValue(bytes: bytes, dataType: info.dataType, dataSize: info.dataSize)
     }
 
-    private func readKeyInfo(forKeyCode keyCode: UInt32) -> SMCKeyInfo? {
-        if let cached = keyInfoCache[keyCode] {
-            return cached
+    /// 支持负向缓存的通用键值查询辅助函数（抽离供单元测试验证零重复查询）
+    public static func cachedLookup<Key: Hashable, Value>(
+        key: Key,
+        cache: inout [Key: Value?],
+        fetch: (Key) -> Value?
+    ) -> Value? {
+        if let existing = cache[key] {
+            return existing
         }
-        var input = SMCKeyData()
-        input.key = keyCode
-        input.data8 = kSMCGetKeyInfoCmd
+        let fetched = fetch(key)
+        cache[key] = fetched
+        return fetched
+    }
 
-        var output = SMCKeyData()
-        guard callSMC(input: &input, output: &output), output.result == 0 else {
-            return nil
+    private func readKeyInfo(forKeyCode keyCode: UInt32) -> SMCKeyInfo? {
+        Self.cachedLookup(key: keyCode, cache: &keyInfoCache) { code in
+            var input = SMCKeyData()
+            input.key = code
+            input.data8 = kSMCGetKeyInfoCmd
+
+            var output = SMCKeyData()
+            guard callSMC(input: &input, output: &output), output.result == 0 else {
+                return nil
+            }
+            return output.keyInfo
         }
-        keyInfoCache[keyCode] = output.keyInfo
-        return output.keyInfo
     }
 
     private func callSMC(input: inout SMCKeyData, output: inout SMCKeyData) -> Bool {

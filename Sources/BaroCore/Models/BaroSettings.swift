@@ -9,26 +9,6 @@ public enum MenuBarStyle: String, CaseIterable, Codable, Sendable, Identifiable 
     case breathingDot
 
     public var id: String { rawValue }
-
-    public var title: String {
-        switch self {
-        case .compactDualRow: return "双行精工"
-        case .singleLine: return "单行胶囊"
-        case .sparkline: return "脉搏微图"
-        case .miniBars: return "精工双柱"
-        case .breathingDot: return "灵动圆环"
-        }
-    }
-
-    public var subtitle: String {
-        switch self {
-        case .compactDualRow: return "微分割双行精密排布，紧凑防遮挡"
-        case .singleLine: return "微缩硬件符号与圆角浅框，大屏舒展直读"
-        case .sparkline: return "平滑面积波形视窗 + 内存圆环微表盘"
-        case .miniBars: return "原生单色双槽液位表，极致节省刘海空间"
-        case .breathingDot: return "同心光晕状态灯，高压时浮现占用图标"
-        }
-    }
 }
 
 public enum GlobalHotKeyPreset: String, CaseIterable, Codable, Sendable, Identifiable {
@@ -55,16 +35,6 @@ public enum MenuBarMetric: String, CaseIterable, Codable, Sendable, Identifiable
     case power
 
     public var id: String { rawValue }
-
-    public var title: String {
-        switch self {
-        case .cpu: return "CPU"
-        case .memory: return "内存"
-        case .network: return "网速"
-        case .temperature: return "温度"
-        case .power: return "功耗"
-        }
-    }
 }
 
 @MainActor

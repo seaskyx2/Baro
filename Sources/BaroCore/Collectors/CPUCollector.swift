@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import IOKit
 
 public final class CPUCollector: @unchecked Sendable {
     private struct CoreTicks {
@@ -13,10 +14,12 @@ public final class CPUCollector: @unchecked Sendable {
     private var previousTicks: [CoreTicks] = []
     private let pCoreCount: Int
     private let eCoreCount: Int
+    private let ioRegistryCoreMap: [Int: CoreKind]
 
     public init() {
         self.pCoreCount = Int(HostInfoReader.sysctlInt32("hw.perflevel0.logicalcpu") ?? 0)
         self.eCoreCount = Int(HostInfoReader.sysctlInt32("hw.perflevel1.logicalcpu") ?? 0)
+        self.ioRegistryCoreMap = Self.readIORegistryCoreKinds()
     }
 
     public func resetBaseline() {
@@ -155,11 +158,73 @@ public final class CPUCollector: @unchecked Sendable {
     }
 
     private func coreKind(for index: Int, totalCores: Int) -> CoreKind {
+        if let mapped = ioRegistryCoreMap[index], mapped != .unknown {
+            return mapped
+        }
         guard pCoreCount > 0, eCoreCount > 0, (pCoreCount + eCoreCount) == totalCores else {
             return .unknown
         }
-        // Apple Silicon host_processor_info 先报告能效核（E-Core），再报告性能核（P-Core）
         return index < eCoreCount ? .efficiency : .performance
+    }
+
+    /// 从 IORegistry 读取每个逻辑核心真实的 `cluster-type`（兼容未来多 Die 交错核心编号）
+    public static func readIORegistryCoreKinds() -> [Int: CoreKind] {
+        guard let matching = IOServiceMatching("IOPlatformDevice") else { return [:] }
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS else {
+            return [:]
+        }
+        defer { IOObjectRelease(iterator) }
+
+        var map: [Int: CoreKind] = [:]
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            defer {
+                IOObjectRelease(service)
+                service = IOIteratorNext(iterator)
+            }
+            guard let clusterObj = IORegistryEntryCreateCFProperty(service, "cluster-type" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() else {
+                continue
+            }
+            let kind = parseClusterType(clusterObj)
+            guard kind != .unknown else { continue }
+
+            let idObj = IORegistryEntryCreateCFProperty(service, "logical-cpu-id" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+                ?? IORegistryEntryCreateCFProperty(service, "cpu-id" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+            if let coreIndex = parseLogicalCPUIndex(idObj), coreIndex >= 0 {
+                map[coreIndex] = kind
+            }
+        }
+        return map
+    }
+
+    public static func parseClusterType(_ raw: Any?) -> CoreKind {
+        let text: String
+        if let str = raw as? String {
+            text = str
+        } else if let data = raw as? Data {
+            let trimmed = data.prefix { $0 != 0 }
+            text = String(decoding: trimmed, as: UTF8.self)
+        } else {
+            return .unknown
+        }
+        let upper = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if upper.hasPrefix("E") { return .efficiency }
+        if upper.hasPrefix("P") || upper.hasPrefix("M") { return .performance }
+        return .unknown
+    }
+
+    public static func parseLogicalCPUIndex(_ raw: Any?) -> Int? {
+        if let num = raw as? NSNumber {
+            return num.intValue
+        }
+        if let data = raw as? Data, data.count >= 4 {
+            let val = data.withUnsafeBytes { buf -> UInt32 in
+                buf.loadUnaligned(as: UInt32.self)
+            }
+            return Int(UInt32(littleEndian: val))
+        }
+        return nil
     }
 
     private func readLoadAverages() -> (Double, Double, Double) {

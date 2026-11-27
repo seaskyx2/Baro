@@ -20,7 +20,7 @@ public final class BatteryPowerCollector: @unchecked Sendable {
             temperatureCelsius: nil,
             timeRemainingMinutes: nil,
             adapterWatts: nil,
-            powerSourceName: "交流电源",
+            powerSource: .acPower,
             peripherals: peripherals
         )
     }
@@ -59,7 +59,7 @@ public final class BatteryPowerCollector: @unchecked Sendable {
                 temperatureCelsius: nil,
                 timeRemainingMinutes: nil,
                 adapterWatts: nil,
-                powerSourceName: "交流电源",
+                powerSource: .acPower,
                 peripherals: peripherals
             )
         }
@@ -104,7 +104,7 @@ public final class BatteryPowerCollector: @unchecked Sendable {
             adapterWatts = watts
         }
 
-        let sourceName = externalConnected ? "电源适配器" : "内置电池"
+        let sourceKind: PowerSourceKind = externalConnected ? .powerAdapter : .internalBattery
 
         return BatteryPowerSnapshot(
             hasInternalBattery: true,
@@ -117,7 +117,7 @@ public final class BatteryPowerCollector: @unchecked Sendable {
             temperatureCelsius: tempC,
             timeRemainingMinutes: timeRemaining,
             adapterWatts: adapterWatts,
-            powerSourceName: sourceName,
+            powerSource: sourceKind,
             peripherals: peripherals
         )
     }
@@ -161,7 +161,7 @@ public final class BatteryPowerCollector: @unchecked Sendable {
                   let percent = (batteryObj as? NSNumber)?.intValue else {
                 continue
             }
-            let product = (IORegistryEntryCreateCFProperty(service, "Product" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String) ?? "Apple 外设"
+            let product = (IORegistryEntryCreateCFProperty(service, "Product" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String) ?? "Apple HID"
             let key = "\(product)-\(percent)"
             if !seen.contains(key) {
                 seen.insert(key)

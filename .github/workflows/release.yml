@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (without v prefix, e.g. 1.0.1)'
+        description: 'Release version (without v prefix, e.g. 1.3.0)'
         required: false
-        default: '1.0.1'
+        default: '1.3.0'
 
 permissions:
   contents: write
@@ -69,5 +69,5 @@ jobs:
           else
             gh release create "$TAG" "$ZIP_FILE" "$SHA_FILE" \
               --title "Baro ${TAG}" \
-              --notes "Pure read-only, zero-intrusion system status monitor for macOS (Apple Silicon)."
+              --generate-notes
           fi
