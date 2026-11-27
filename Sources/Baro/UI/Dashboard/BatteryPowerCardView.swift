@@ -124,7 +124,7 @@ public struct BatteryPowerCardView: View {
                     .foregroundStyle(.secondary)
                 Text(BaroL10n.t("可在设置中预览笔记本电池卡", "Preview laptop card in Preferences", lang: lang))
                     .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             } else {
                 ForEach(snap.peripherals.prefix(2)) { item in
                     HStack(spacing: 5) {

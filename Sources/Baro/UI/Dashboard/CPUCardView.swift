@@ -118,7 +118,7 @@ public struct CPUCardView: View {
                 Spacer()
                 Text("Load \(String(format: "%.2f / %.2f", cpu.loadAverage1m, cpu.loadAverage5m))")
                     .font(.system(size: 9, weight: .regular).monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
             }
 
             HStack(alignment: .bottom, spacing: 3) {

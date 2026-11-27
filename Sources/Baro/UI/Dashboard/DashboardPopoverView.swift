@@ -197,11 +197,11 @@ public struct DashboardPopoverView: View {
         HStack {
             Text(BaroL10n.t("Baro 晴雨表 · 纯只读零入侵", "Baro · Read-Only, Zero Intrusion", lang: lang))
                 .font(.system(size: 9.5, weight: .medium))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
             Spacer()
             Text(coordinator.hostInfo.modelIdentifier)
                 .font(.system(size: 9.5, weight: .medium).monospacedDigit())
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 2)
     }

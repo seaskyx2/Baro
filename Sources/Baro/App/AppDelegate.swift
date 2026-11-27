@@ -18,7 +18,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private lazy var coordinator = SamplingCoordinator(settings: settings)
 
     private var statusItem: NSStatusItem!
-    private var statusCanvasView: StatusBarCanvasView!
     private var dashboardPanel: BaroFloatingPanel?
     private var dashboardHostingController: NSHostingController<DashboardPopoverView>?
     private var settingsWindow: NSWindow?
@@ -54,31 +53,29 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         removeMonitors()
     }
 
-    // MARK: - Pure AppKit Single NSStatusItem
+    // MARK: - Native Template Image NSStatusItem
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusCanvasView = StatusBarCanvasView(frame: NSRect(x: 0, y: 0, width: 132, height: 22))
 
         if let button = statusItem.button {
             button.title = ""
-            button.image = nil
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleNone
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.addSubview(statusCanvasView)
             updateStatusCanvas(with: coordinator.currentMenuBarRenderData())
         }
     }
 
     private func updateStatusCanvas(with data: MenuBarRenderData) {
-        guard let button = statusItem.button, let canvas = statusCanvasView else { return }
-        let targetWidth = canvas.configure(data: data, settings: settings)
-        let targetHeight = max(22, button.bounds.height)
-        if abs(targetWidth - statusItem.length) >= 0.5 || abs(canvas.frame.height - targetHeight) >= 0.5 {
-            canvas.frame = NSRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
-            button.frame = NSRect(x: 0, y: 0, width: targetWidth, height: targetHeight)
-            statusItem.length = targetWidth
+        guard let button = statusItem.button else { return }
+        let appearance = button.effectiveAppearance
+        let image = MenuBarImageRenderer.render(data: data, settings: settings, appearance: appearance)
+        button.image = image
+        if abs(image.size.width - statusItem.length) >= 0.5 {
+            statusItem.length = image.size.width
         }
     }
 
