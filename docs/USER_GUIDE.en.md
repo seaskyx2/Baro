@@ -1,0 +1,98 @@
+# Baro User Guide
+
+[English](USER_GUIDE.en.md) | [简体中文](USER_GUIDE.md)
+
+**Baro** (short for *Barometer* & *Menu Bar*) is a **pure read-only, zero-intrusion** native macOS system status monitor tailored for Apple Silicon (macOS 15+, with native Liquid Glass on macOS 26/27). It performs zero cleanup, zero process termination, zero fan overrides, and zero network requests.
+
+---
+
+## 1. Download, Installation & First Launch
+
+1. Download the latest `Baro-v*-macOS-arm64.zip` from [GitHub Releases](https://github.com/seaskyx2/Baro/releases).
+2. Unzip the archive and drag `Baro.app` into your **`/Applications`** folder.
+3. **First Launch**:
+   * Because Baro is an open-source, ad-hoc signed utility (without paid Apple notarization), macOS may warn about an unidentified developer when launched for the first time.
+   * Run the following one-time command in Terminal to clear the download quarantine flag and open it:
+     ```bash
+     xattr -cr /Applications/Baro.app
+     open /Applications/Baro.app
+     ```
+4. Once launched, Baro stays out of your Dock (`LSUIElement`) and lives cleanly in the top-right **menu bar**.
+
+---
+
+## 2. Menu Bar Controls & Styles
+
+Baro occupies only **1 single menu bar slot**, preventing overlap or ordering issues on notched MacBooks:
+
+* **Left-click**: Open / close the floating dashboard panel (click outside or press `Esc` to dismiss).
+* **Right-click**: Open the quick context menu:
+  * **Open Baro Dashboard**
+  * **Preferences…** (`Command + ,`)
+  * **Quit Baro** (`Command + Q`)
+
+### Three Built-In Menu Bar Styles
+Switch styles anytime in **Preferences → Menu Bar**:
+
+1. **Compact Dual-Row (Default)**: Packs CPU, Memory, Network Upload/Download, Temperature, or Power into a tight two-line capsule (`~102–130pt` wide).
+2. **Sparkline**: Shows a live miniature CPU history curve with percentage alongside a clean memory capsule bar.
+3. **Breathing Dot**: Ultra-minimal status dot + CPU%. When the system enters an elevated load state (e.g., CPU ≥ 75% or critical memory pressure), the icon of the top CPU-consuming app subtly appears next to the dot.
+
+---
+
+## 3. Dashboard Modules & Interactive Tips
+
+Left-click the menu bar capsule to reveal the Bento dashboard:
+
+### Hidden Interactive Gestures
+1. **Click Cards to Expand Inline Drawers**:
+   * **CPU Card**: Reveals **per-core real-time bar charts** (distinguishing Indigo `P-Cores` from Teal `E-Cores`) plus 1m/5m Load Averages.
+   * **Unified Memory Card**: Expands the exact memory breakdown (App, Wired, Compressed, Cached Files, Free).
+   * **Power & GPU Card**: Expands the **read-only thermal & fan sensor table** (zone temperatures and current/max RPM).
+   * **Disk Card**: Expands remaining capacity across secondary mounted volumes when attached.
+   * *Click any expanded card again to collapse it.*
+2. **Sparkline Hover Inspect**:
+   * Glide your cursor over any sparkline chart (CPU, Memory, Power, or Network) to reveal a vertical hairline cursor and exact historical readout tooltip.
+
+### Module Breakdown
+* **Plain-Language Health Pill**: Summarizes system health at the top (e.g., *Calm · Zero swap pressure* or *High Load · Xcode using 64% CPU*).
+* **CPU**: Total utilization, P/E-core cluster averages, die temperature, and 1-minute load average.
+* **Unified Memory**: Matches macOS Activity Monitor accounting (`App + Wired + Compressed`), visualized via a tri-color stacked bar alongside Swap usage and kernel memory pressure level.
+* **Power & GPU**: Reads Apple Silicon GPU utilization and energy via `libIOReport` without `sudo`, supplemented by `PowerTelemetryData` and read-only `AppleSMC` total system power readings.
+* **Network Throughput**: Tracks live download (`↓`) / upload (`↑`) speeds across active physical interfaces, local IPv4 address, and session cumulative traffic.
+* **Disk Storage**: Tracks primary volume usage and live block storage read/write throughput.
+* **Power & Battery (Adaptive Dual-Mode)**:
+  * **MacBook (Internal Battery)**: Ring charge gauge, real-time charge/discharge wattage, battery health %, cycle count, battery temperature, adapter wattage, estimated time remaining, and Apple HID peripheral battery levels.
+  * **Desktop Mac (Mac mini / Mac Studio / iMac)**: Automatically switches to AC Power telemetry (live system input watts when exposed by hardware) plus Apple Magic Mouse/Keyboard/Trackpad battery levels via `IOKit HID` (no Bluetooth permission prompt). You can also toggle **"Preview Laptop Battery Card on Desktop"** in Preferences to inspect the full battery layout.
+* **Top Apps (Parent-App Aggregated)**:
+  * Sampled only while the panel is open. Automatically merges helper/renderer child processes into their parent `.app` bundle (with real app icons and `×N` process count badges), switchable between `[CPU | Memory]`.
+
+---
+
+## 4. Preferences Overview
+
+Open Preferences via the `⚙` gear button on the dashboard or right-click menu:
+
+* **General**: Launch at login (`SMAppService.mainApp`, requires `Baro.app` in `/Applications`), Low Power Mode interval scaling, and independent Cold (collapsed) / Hot (expanded) refresh intervals.
+* **Menu Bar**: Choose between the 3 menu bar styles and toggle individual metrics (2–3 metrics recommended for a clean look).
+* **Modules & Alerts**: Toggle any dashboard card, preview the laptop battery card on desktops, and optionally enable read-only notifications (all off by default; 10-minute cooldown) for thermal threshold, critical memory pressure, or low battery (≤ 15%).
+
+---
+
+## 5. Clean Uninstall (Zero Residue)
+
+Baro installs no `LaunchDaemon`, no privileged helpers, no extensions, and writes no disk history logs. To uninstall:
+
+1. Right-click Baro in the menu bar → **Quit Baro**.
+2. Move `/Applications/Baro.app` to the Trash.
+
+---
+
+## 6. FAQ
+
+* **Q: Why doesn't Baro show my Wi-Fi SSID or AirPods battery?**
+  * A: Reading Wi-Fi SSIDs on modern macOS triggers a Location Services prompt, and reading AirPods battery triggers a Bluetooth permission prompt. To preserve a strict **zero-prompt, zero-intrusion** experience, Baro omits those and reads Apple HID peripherals via `IOKit` without triggering any privacy dialogs.
+* **Q: Why do some M4 Macs show total system power & GPU power without per-rail CPU/ANE breakdown?**
+  * A: Recent macOS versions restrict certain non-root `IOReport` energy channels on M4 hardware. Baro automatically falls back to `PowerTelemetryData` and read-only `AppleSMC` system power readings so total wattage remains accurate without elevated privileges.
+* **Q: Does Baro drain power when my Mac sleeps?**
+  * A: No. Baro listens to screen/system sleep notifications, pauses all sampling timers immediately upon sleep, and resets differential baselines on wake to prevent artificial spikes.

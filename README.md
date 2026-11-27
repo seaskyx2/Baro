@@ -1,5 +1,7 @@
 # Baro（晴雨表）
 
+[简体中文](README.md) | [English](README.en.md)
+
 > **Read-only vitals for macOS. Zero intrusion.**
 > 一眼读懂 Mac 晴雨，纯只读、零入侵的 macOS 原生系统状态监控工具。
 > Repository: https://github.com/seaskyx2/Baro
@@ -50,8 +52,7 @@ swift run Baro --probe
 open dist/Baro.app
 ```
 
-## 文档
+## 文档与使用说明
 
-- [产品需求文档（PRD）](docs/PRD.md)
-- [系统架构说明](docs/ARCHITECTURE.md)
-- [UI / UX 设计规范](docs/DESIGN.md)
+- **用户指南**：[简体中文使用指南](docs/USER_GUIDE.md) | [English User Guide](docs/USER_GUIDE.en.md)
+- **工程设计**：[产品需求文档（PRD）](docs/PRD.md) · [系统架构说明](docs/ARCHITECTURE.md) · [UI / UX 设计规范](docs/DESIGN.md)
