@@ -2,7 +2,7 @@
 
 [简体中文](USER_GUIDE.md) | [English](USER_GUIDE.en.md)
 
-**Baro** 是一款专为 macOS（Apple Silicon 优先，支持 macOS 15+ 及 macOS 26/27 Liquid Glass）打造的**纯只读、零入侵**系统状态监控工具。它不包含任何系统清理、进程强杀、风扇控制或联网行为，旨在以近乎零感知的功耗陪伴你的 Mac。
+**Baro** 是一款专为 macOS（Apple Silicon 优先，支持 macOS 15+ 及 macOS 26/27 Liquid Glass）打造的**纯只读、零入侵**系统状态监控工具。它不包含任何系统清理、进程强杀或风扇控制行为，默认也不联网（仅在「关于」窗口手动检查更新时访问 GitHub），旨在以近乎零感知的功耗陪伴你的 Mac。
 
 ---
 

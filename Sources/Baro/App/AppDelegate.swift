@@ -277,16 +277,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     @objc private func copySnapshotFromMenu() {
         let lang = settings.resolvedLanguage
-        let snap = coordinator.isPanelOpen ? coordinator.snapshot : CollectorEngine().sampleHot(bypassThrottle: true)
-        let health = HealthAnalyzer.analyze(
-            snapshot: snap,
-            topCPUApp: snap.topCPUApps.first,
-            topMemoryApp: snap.topMemoryApps.first,
-            language: lang
-        )
-        let text = SnapshotExporter.formatPlainText(hostInfo: coordinator.hostInfo, snapshot: snap, health: health, lang: lang)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        let hostInfo = coordinator.hostInfo
+        coordinator.captureFreshSnapshot { snap, health in
+            let text = SnapshotExporter.formatPlainText(hostInfo: hostInfo, snapshot: snap, health: health, lang: lang)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
     }
 
     @objc private func openSettingsFromMenu() {

@@ -52,14 +52,12 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        let estimatedCount = max(256, Int(proc_listallpids(nil, 0)) + 128)
-        var pids = [pid_t](repeating: 0, count: estimatedCount)
-        let bytesReturned = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.stride))
-        guard bytesReturned > 0 else {
+        let pids = Self.listAllPIDs()
+        guard !pids.isEmpty else {
             return ([], [])
         }
 
-        let pidCount = Int(bytesReturned) / MemoryLayout<pid_t>.stride
+        let pidCount = pids.count
         let now = Date()
         let dtNanos: Double? = previousTimestamp.flatMap { prev in
             let dt = now.timeIntervalSince(prev)
@@ -151,6 +149,17 @@ public final class ProcessAggregatorCollector: @unchecked Sendable {
         let topCPU = Array(aggregated.sorted { $0.cpuPercent > $1.cpuPercent }.prefix(limit))
         let topMemory = Array(aggregated.sorted { $0.memoryBytes > $1.memoryBytes }.prefix(limit))
         return (topCPU, topMemory)
+    }
+
+    /// 列出全部 PID。注意：`proc_listallpids` 的返回值是「PID 个数」而非字节数
+    /// （libproc 内部已将 `proc_listpids` 的字节数除以 sizeof(int)），不能再除以 stride。
+    public static func listAllPIDs() -> [pid_t] {
+        let estimated = proc_listallpids(nil, 0)
+        guard estimated > 0 else { return [] }
+        var buffer = [pid_t](repeating: 0, count: Int(estimated) + 128)
+        let returnedCount = proc_listallpids(&buffer, Int32(buffer.count * MemoryLayout<pid_t>.stride))
+        guard returnedCount > 0 else { return [] }
+        return buffer.prefix(min(Int(returnedCount), buffer.count)).filter { $0 > 0 }
     }
 
     private func readProcessPath(pid: Int32) -> String {

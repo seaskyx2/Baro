@@ -190,6 +190,63 @@ final class BaroCoreTests: XCTestCase {
         XCTAssertFalse(second.topMemory.isEmpty)
     }
 
+    /// 回归：proc_listallpids 返回 PID 个数，曾被误除以 4 导致只扫描约 1/4 进程
+    func testListAllPIDsCoversAllProcesses() {
+        let expected = Int(proc_listallpids(nil, 0))
+        let pids = ProcessAggregatorCollector.listAllPIDs()
+        XCTAssertGreaterThan(expected, 0)
+        XCTAssertGreaterThanOrEqual(pids.count, expected * 8 / 10)
+        XCTAssertTrue(pids.contains(ProcessInfo.processInfo.processIdentifier))
+    }
+
+    /// 回归：冷态不得沿用上一次热态的进程排行
+    func testColdSampleDropsStaleTopApps() {
+        var prev = SystemSnapshot.empty
+        let stale = AggregatedAppUsage(
+            id: "app:Stale",
+            name: "Stale",
+            bundleIdentifier: nil,
+            appBundlePath: "/Applications/Stale.app",
+            cpuPercent: 90,
+            memoryBytes: 1,
+            pidsCount: 1
+        )
+        prev.topCPUApps = [stale]
+        prev.topMemoryApps = [stale]
+        let next = CollectorEngine().sampleCold(
+            previous: prev,
+            needCPU: false,
+            needMemory: false,
+            needNetwork: false,
+            needThermal: false,
+            needPower: false
+        )
+        XCTAssertTrue(next.topCPUApps.isEmpty)
+        XCTAssertTrue(next.topMemoryApps.isEmpty)
+    }
+
+    /// 回归：面板收起时导出的快照必须带有效 CPU 差分（曾因单次采样恒为 0%）
+    @MainActor
+    func testCaptureFreshSnapshotHasValidDeltas() {
+        let suiteName = "com.baro.tests.capture"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let coordinator = SamplingCoordinator(settings: BaroSettings(defaults: defaults))
+        let done = expectation(description: "capture")
+        var captured: SystemSnapshot?
+        coordinator.captureFreshSnapshot { snap, _ in
+            captured = snap
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let snap = try! XCTUnwrap(captured)
+        XCTAssertGreaterThan(snap.cpu.totalCoreCount, 0)
+        let hasCPUDelta = snap.cpu.totalUsagePercent > 0 || snap.topCPUApps.contains { $0.cpuPercent > 0 }
+        XCTAssertTrue(hasCPUDelta)
+    }
+
     func testNVMeSmartUnitConversionAndSleepAssertionsAndSanitizedExport() {
         let smart = DiskCollector.convertNVMeReading(
             percentageUsed: 3,

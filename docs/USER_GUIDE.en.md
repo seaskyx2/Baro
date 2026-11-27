@@ -2,7 +2,7 @@
 
 [English](USER_GUIDE.en.md) | [简体中文](USER_GUIDE.md)
 
-**Baro** (short for *Barometer* & *Menu Bar*) is a **pure read-only, zero-intrusion** native macOS system status monitor tailored for Apple Silicon (macOS 15+, with native Liquid Glass on macOS 26/27). It performs zero cleanup, zero process termination, zero fan overrides, and zero network requests.
+**Baro** (short for *Barometer* & *Menu Bar*) is a **pure read-only, zero-intrusion** native macOS system status monitor tailored for Apple Silicon (macOS 15+, with native Liquid Glass on macOS 26/27). It performs zero cleanup, zero process termination, zero fan overrides, and no network access by default (only a manual "Check for Updates" in the About window contacts GitHub).
 
 ---
 

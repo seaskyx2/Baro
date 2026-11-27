@@ -11,7 +11,7 @@ Baro (*Barometer* + *Menu Bar*) is strictly **Read-Only by Construction**:
 
 - **Zero Control, Zero Cleanup, Zero Writes**: Never kills processes, never overrides fan curves, never deletes files, and never alters system settings.
 - **Zero Background Residue**: Single-process native Swift app — no `PrivilegedHelper`, no `LaunchDaemon`, no `WidgetsExtension`. Dragging `Baro.app` to Trash removes it completely.
-- **Zero Privacy Prompts**: Requests neither Location (SSID) nor Bluetooth permissions (Apple peripheral batteries are read silently via `IOKit HID`). Zero network calls, zero telemetry, zero donation popups.
+- **Zero Privacy Prompts**: Requests neither Location (SSID) nor Bluetooth permissions (Apple peripheral batteries are read silently via `IOKit HID`). No network access by default (only when you manually click "Check for Updates" in the About window), zero telemetry, zero donation popups.
 - **Cold / Hot Tiered Sampling**: While collapsed, only visible menu bar metrics are lightly sampled and the hidden panel performs zero redraws; expanding the dashboard activates full hardware & per-app sampling; screen/system sleep pauses all timers automatically.
 - **Native Liquid Glass Aesthetics**: Uses native `.glassEffect` on macOS 26/27 (with graceful `.ultraThinMaterial` fallback on macOS 15), Bento card layout, and `.monospacedDigit()` alignment across every readout.
 
@@ -24,6 +24,9 @@ Baro (*Barometer* + *Menu Bar*) is strictly **Read-Only by Construction**:
 - **Network & Storage**: 64-bit interface counters (immune to 4GB wrap-around), live rates, local IP, session totals, mounted volumes, block I/O throughput, plus **non-root NVMe S.M.A.R.T. health & TBW**.
 - **Sleep Blocker Detection**: Uses `IOPMCopyAssertionsByProcess` (zero permissions) to surface user apps preventing display or system sleep.
 - **Permission-Free Global Hotkey & Sanitized Snapshot**: Toggle dashboard anytime with `⌃⌥B` / `⌃⇧B` / `⌥⌘B` (no Accessibility prompt); 1-click copy sanitized text snapshot (no IPs or personal paths).
+- **Adaptive Battery & Power Card**: Full battery ring gauge, charge/discharge watts, health %, cycle count, temperature, and adapter wattage on MacBooks; AC power telemetry and Apple HID peripheral batteries on desktop Macs (plus a desktop preview toggle in Preferences).
+- **Parent-App Aggregated Top Processes**: Merges scattered Helper/Renderer subprocesses under their parent `.app` bundle to pinpoint CPU and memory hogs cleanly.
+- **Plain-Language Health Summary**: Concise status pill summarizing system state at a glance.
 
 ## Comparison
 
@@ -35,9 +38,6 @@ Baro (*Barometer* + *Menu Bar*) is strictly **Read-Only by Construction**:
 | Single-Slot 5 Styles (Notch-Safe) | ✅ | ⚠️ Multi-item | ⚠️ | ✅ |
 | Non-root NVMe TBW + Sleep Blocker Detection | ✅ | ⚠️ | ❌ | ✅ |
 | Idle Panel Memory Release & Render Deduplication | ✅ | ❌ | ✅ | ✅ |
-- **Adaptive Battery & Power Card**: Full battery ring gauge, charge/discharge watts, health %, cycle count, temperature, and adapter wattage on MacBooks; AC power telemetry and Apple HID peripheral batteries on desktop Macs (plus a desktop preview toggle in Preferences).
-- **Parent-App Aggregated Top Processes**: Merges scattered Helper/Renderer subprocesses under their parent `.app` bundle to pinpoint CPU and memory hogs cleanly.
-- **Plain-Language Health Summary**: Concise status pill summarizing system state at a glance.
 
 ## Download & Install
 

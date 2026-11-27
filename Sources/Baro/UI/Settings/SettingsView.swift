@@ -89,8 +89,8 @@ public struct SettingsView: View {
 
             Section(BaroL10n.t("零入侵声明", "Zero-Intrusion Guarantee", lang: lang)) {
                 Text(BaroL10n.t(
-                    "Baro 仅调用只读系统接口，不含清理、强杀进程、调速、联网与历史落盘逻辑。",
-                    "Baro uses read-only system APIs only. No cleanup, kill switches, fan overrides, or network calls.",
+                    "Baro 仅调用只读系统接口，不含清理、强杀进程、调速与历史落盘逻辑；默认不联网，仅在手动检查更新时访问 GitHub。",
+                    "Baro uses read-only system APIs only. No cleanup, kill switches, fan overrides, or history logs. Offline by default; only a manual update check contacts GitHub.",
                     lang: lang
                 ))
                 .font(.caption)

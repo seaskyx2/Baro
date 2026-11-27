@@ -86,11 +86,22 @@ public final class CollectorEngine: @unchecked Sendable {
         needMemory: Bool,
         needNetwork: Bool,
         needThermal: Bool,
-        needPower: Bool
+        needPower: Bool,
+        includeProcesses: Bool = false
     ) -> SystemSnapshot {
         var next = previous
         next.timestamp = Date()
         next.uptimeSeconds = HostInfoReader.uptimeSeconds()
+
+        // 冷态默认不沿用上一次热态的进程排行，避免菜单栏/健康摘要点名过期 App
+        if includeProcesses {
+            let procs = cachedOrFreshProcesses(minInterval: 3.0)
+            next.topCPUApps = procs.topCPU
+            next.topMemoryApps = procs.topMemory
+        } else {
+            next.topCPUApps = []
+            next.topMemoryApps = []
+        }
 
         if needCPU {
             next.cpu = cpu.sample()
@@ -281,6 +292,7 @@ public final class SamplingCoordinator: ObservableObject {
     private let engine = CollectorEngine()
     private var timer: Timer?
     private var isSamplingInFlight = false
+    private var coldProcessSamplingActive = false
     private var workspaceObservers: [NSObjectProtocol] = []
     private var settingsCancellables = Set<AnyCancellable>()
     private var lastAlertDates: [String: Date] = [:]
@@ -313,6 +325,7 @@ public final class SamplingCoordinator: ObservableObject {
     public func setPanelOpen(_ open: Bool) {
         guard isPanelOpen != open else { return }
         isPanelOpen = open
+        coldProcessSamplingActive = false
         if open {
             snapshot = latestSnapshot
             healthSummary = latestHealthSummary
@@ -321,6 +334,33 @@ public final class SamplingCoordinator: ObservableObject {
             engine.resetHotProcessThrottle()
         }
         scheduleNextCycle(immediate: true)
+    }
+
+    /// 生成一份可导出的完整快照：面板展开时直接复用热态数据；
+    /// 面板收起时在现有引擎上间隔 1 秒连续采样两次，确保 CPU / 网速 / 进程等差分指标有效。
+    public func captureFreshSnapshot(
+        completion: @escaping @MainActor @Sendable (SystemSnapshot, HealthSummary) -> Void
+    ) {
+        if isPanelOpen {
+            completion(snapshot, healthSummary)
+            return
+        }
+        let capturedEngine = engine
+        let lang = settings.resolvedLanguage
+        Task.detached(priority: .userInitiated) {
+            _ = capturedEngine.sampleHot(bypassThrottle: true)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let snap = capturedEngine.sampleHot(bypassThrottle: true)
+            let health = HealthAnalyzer.analyze(
+                snapshot: snap,
+                topCPUApp: snap.topCPUApps.first,
+                topMemoryApp: snap.topMemoryApps.first,
+                language: lang
+            )
+            await MainActor.run {
+                completion(snap, health)
+            }
+        }
     }
 
     private func syncHistoryBuffersToPublished() {
@@ -439,6 +479,13 @@ public final class SamplingCoordinator: ObservableObject {
         let includeDisk = hot && settings.showDiskCard
         let includeBattery = hot && settings.showBatteryPowerCard
         let includeProcs = hot && (settings.showTopAppsSection || settings.menuBarStyle == .breathingDot)
+
+        // 「灵动圆环」仅在高压态时于冷态做节流进程采样（需两轮建立 CPU 差分基线后才会浮现图标）
+        let needColdProcs = !hot && style == .breathingDot && latestHealthSummary.level == .elevated
+        if !hot && !needColdProcs && coldProcessSamplingActive {
+            engine.resetHotProcessThrottle()
+        }
+        coldProcessSamplingActive = needColdProcs
         let capturedEngine = engine
 
         Task.detached(priority: .utility) {
@@ -461,7 +508,8 @@ public final class SamplingCoordinator: ObservableObject {
                     needMemory: needMemory,
                     needNetwork: needNetwork,
                     needThermal: needThermal,
-                    needPower: needPower
+                    needPower: needPower,
+                    includeProcesses: needColdProcs
                 )
             }
 
@@ -520,7 +568,8 @@ public final class SamplingCoordinator: ObservableObject {
             packageWatts: snap.siliconPower.packageWatts,
             isPowerAvailable: snap.siliconPower.isAvailable,
             healthLevel: health.level,
-            topCPUAppPath: snap.topCPUApps.first?.appBundlePath,
+            // 基线轮次所有进程 CPU 均为 0，需过滤掉，避免浮现无关 App 图标
+            topCPUAppPath: snap.topCPUApps.first.flatMap { $0.cpuPercent >= 10.0 ? $0.appBundlePath : nil },
             cpuSparklinePoints: Array(cpuBuffer.values.suffix(16))
         )
     }
