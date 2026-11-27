@@ -1,0 +1,213 @@
+import BaroCore
+import SwiftUI
+
+public struct DashboardPopoverView: View {
+    @ObservedObject public var coordinator: SamplingCoordinator
+    @ObservedObject public var settings: BaroSettings
+    public let onOpenSettings: () -> Void
+    public let onLayoutChanged: () -> Void
+
+    @State private var expandedCPU = false
+    @State private var expandedMemory = false
+    @State private var expandedPower = false
+    @State private var expandedDisk = false
+
+    public init(
+        coordinator: SamplingCoordinator,
+        settings: BaroSettings,
+        onOpenSettings: @escaping () -> Void,
+        onLayoutChanged: @escaping () -> Void
+    ) {
+        self.coordinator = coordinator
+        self.settings = settings
+        self.onOpenSettings = onOpenSettings
+        self.onLayoutChanged = onLayoutChanged
+    }
+
+    public var body: some View {
+        Group {
+            if coordinator.isPanelOpen {
+                dashboardBody
+            } else {
+                Color.clear
+                    .frame(width: 364, height: 10)
+            }
+        }
+    }
+
+    private var dashboardBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            headerSection
+
+            if settings.showCPUCard || settings.showMemoryCard {
+                twoColumnGrid {
+                    if settings.showCPUCard {
+                        CPUCardView(
+                            cpu: coordinator.snapshot.cpu,
+                            history: coordinator.cpuHistory,
+                            temperature: coordinator.snapshot.thermalFan.cpuTemperature ?? coordinator.snapshot.thermalFan.socTemperature,
+                            isExpanded: expandedCPU,
+                            onToggleExpand: {
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    expandedCPU.toggle()
+                                }
+                                onLayoutChanged()
+                            }
+                        )
+                    }
+
+                    if settings.showMemoryCard {
+                        MemoryCardView(
+                            memory: coordinator.snapshot.memory,
+                            history: coordinator.memoryHistory,
+                            isExpanded: expandedMemory,
+                            onToggleExpand: {
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    expandedMemory.toggle()
+                                }
+                                onLayoutChanged()
+                            }
+                        )
+                    }
+                }
+            }
+
+            if settings.showPowerGPUCard || settings.showNetworkCard {
+                twoColumnGrid {
+                    if settings.showPowerGPUCard {
+                        PowerGPUCardView(
+                            power: coordinator.snapshot.siliconPower,
+                            thermal: coordinator.snapshot.thermalFan,
+                            powerHistory: coordinator.powerHistory,
+                            isExpanded: expandedPower,
+                            onToggleExpand: {
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    expandedPower.toggle()
+                                }
+                                onLayoutChanged()
+                            }
+                        )
+                    }
+
+                    if settings.showNetworkCard {
+                        NetworkCardView(
+                            network: coordinator.snapshot.network,
+                            downloadHistory: coordinator.downloadHistory,
+                            uploadHistory: coordinator.uploadHistory
+                        )
+                    }
+                }
+            }
+
+            if settings.showDiskCard || settings.showBatteryPowerCard {
+                twoColumnGrid {
+                    if settings.showDiskCard {
+                        DiskCardView(
+                            disk: coordinator.snapshot.disk,
+                            isExpanded: expandedDisk,
+                            onToggleExpand: {
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    expandedDisk.toggle()
+                                }
+                                onLayoutChanged()
+                            }
+                        )
+                    }
+
+                    if settings.showBatteryPowerCard {
+                        BatteryPowerCardView(
+                            batteryPower: coordinator.snapshot.batteryPower,
+                            previewLaptopMode: settings.previewLaptopBatteryOnDesktop
+                        )
+                    }
+                }
+            }
+
+            if settings.showTopAppsSection {
+                TopAppsSectionView(
+                    topCPUApps: coordinator.snapshot.topCPUApps,
+                    topMemoryApps: coordinator.snapshot.topMemoryApps
+                )
+            }
+
+            footerSection
+        }
+        .padding(12)
+        .frame(width: 364)
+        .baroLiquidGlass(cornerRadius: 22)
+        .onChange(of: expandedCPU) { _, _ in onLayoutChanged() }
+        .onChange(of: expandedMemory) { _, _ in onLayoutChanged() }
+        .onChange(of: expandedPower) { _, _ in onLayoutChanged() }
+        .onChange(of: expandedDisk) { _, _ in onLayoutChanged() }
+    }
+
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: "barometer")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Text("\(coordinator.hostInfo.chipName) (\(ByteFormatter.memorySize(coordinator.hostInfo.totalMemoryBytes)))")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text("Up \(ByteFormatter.uptime(coordinator.snapshot.uptimeSeconds))")
+                    .font(.system(size: 10, weight: .medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                Button(action: onOpenSettings) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("偏好设置")
+            }
+
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(BaroPalette.healthColor(for: coordinator.healthSummary.level))
+                    .frame(width: 6.5, height: 6.5)
+                Text(coordinator.healthSummary.message)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.primary.opacity(0.88))
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4.5)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private var footerSection: some View {
+        HStack {
+            Text("Baro 晴雨表 · 纯只读零入侵")
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(.tertiary)
+            Spacer()
+            Text(coordinator.hostInfo.modelIdentifier)
+                .font(.system(size: 9.5, weight: .medium).monospacedDigit())
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 2)
+    }
+
+    @ViewBuilder
+    private func twoColumnGrid<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(), spacing: 8, alignment: .top),
+                GridItem(.flexible(), spacing: 8, alignment: .top)
+            ],
+            spacing: 8
+        ) {
+            content()
+        }
+    }
+}
