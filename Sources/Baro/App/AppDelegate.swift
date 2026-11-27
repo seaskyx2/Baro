@@ -227,25 +227,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         styleParent.submenu = styleSubmenu
         menu.addItem(styleParent)
 
-        let densityParent = NSMenuItem(
-            title: BaroL10n.t("菜单栏间距", "Menu Bar Spacing", lang: lang),
-            action: nil,
+        let iconToggleItem = NSMenuItem(
+            title: BaroL10n.t("显示晴雨表图标", "Show Barometer Icon", lang: lang),
+            action: #selector(toggleMenuBarIconFromMenu),
             keyEquivalent: ""
         )
-        let densitySubmenu = NSMenu()
-        for density in MenuBarDensity.allCases {
-            let item = NSMenuItem(
-                title: BaroL10n.menuBarDensityTitle(density, lang: lang),
-                action: #selector(selectMenuBarDensity(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = density.rawValue
-            item.state = settings.menuBarDensity == density ? .on : .off
-            densitySubmenu.addItem(item)
-        }
-        densityParent.submenu = densitySubmenu
-        menu.addItem(densityParent)
+        iconToggleItem.target = self
+        iconToggleItem.state = settings.showMenuBarIcon ? .on : .off
+        menu.addItem(iconToggleItem)
 
         menu.addItem(.separator())
 
@@ -311,10 +300,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         forceRedrawMenuBar()
     }
 
-    @objc private func selectMenuBarDensity(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let chosen = MenuBarDensity(rawValue: raw) else { return }
-        settings.menuBarDensity = chosen
+    @objc private func toggleMenuBarIconFromMenu() {
+        settings.showMenuBarIcon.toggle()
         forceRedrawMenuBar()
     }
 

@@ -17,7 +17,7 @@ Baro (*Barometer* + *Menu Bar*) is strictly **Read-Only by Construction**:
 
 ## Features
 
-- **Single-Slot Menu Bar Capsule**: 5 display styles (*Compact Dual-Row*, *Single Line*, *Sparkline*, *Mini Bars*, *Breathing Dot*) with 3 spacing densities and instant right-click switching.
+- **Single-Slot Precision Menu Bar**: 5 optically balanced native styles (*Dual-Row Precision*, *Inline Pill*, *Pulse Graph*, *Micro Meters*, *Halo Dot*) with a dynamic load-deflecting barometer dial, live preview in Preferences, and instant right-click switching.
 - **Per-Core CPU Monitoring**: Apple Silicon P-Core vs. E-Core cluster averages, expandable per-core real-time bar chart drawer, and Load Averages.
 - **Unified Memory**: Activity Monitor-aligned accounting (App, Wired, Compressed), Swap usage, and memory pressure state.
 - **Apple Silicon Power, GPU & Thermals (No `sudo`)**: Reads GPU usage and energy via `libIOReport`, combined with `PowerTelemetryData` and read-only `AppleSMC` for system wattage, filtered die/zone temperatures, and fan RPM.

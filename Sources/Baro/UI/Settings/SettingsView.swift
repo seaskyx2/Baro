@@ -1,9 +1,11 @@
+import AppKit
 import BaroCore
 import ServiceManagement
 import SwiftUI
 
 public struct SettingsView: View {
     @ObservedObject public var settings: BaroSettings
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var launchStatusMessage: String?
@@ -32,7 +34,7 @@ public struct SettingsView: View {
                 }
         }
         .padding(18)
-        .frame(width: 450, height: 365)
+        .frame(width: 480, height: 460)
     }
 
     private func generalTab(lang: ResolvedLanguage) -> some View {
@@ -100,24 +102,16 @@ public struct SettingsView: View {
 
     private func menuBarTab(lang: ResolvedLanguage) -> some View {
         Form {
-            Section(BaroL10n.t("单槽位视觉风格", "Single-Slot Style", lang: lang)) {
-                Picker(BaroL10n.t("显示风格", "Style", lang: lang), selection: $settings.menuBarStyle) {
-                    ForEach(MenuBarStyle.allCases) { style in
-                        Text(BaroL10n.menuBarStyleTitle(style, lang: lang)).tag(style)
-                    }
-                }
-                Text(BaroL10n.menuBarStyleSubtitle(settings.menuBarStyle, lang: lang))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Section(BaroL10n.t("实时状态栏预览", "Live Menu Bar Preview", lang: lang)) {
+                liveMenuBarPreviewStrip(lang: lang)
+            }
 
-                Picker(BaroL10n.t("间距密度", "Spacing Density", lang: lang), selection: $settings.menuBarDensity) {
-                    ForEach(MenuBarDensity.allCases) { density in
-                        Text(BaroL10n.menuBarDensityTitle(density, lang: lang)).tag(density)
-                    }
+            Section(BaroL10n.t("单槽位视觉风格", "Single-Slot Display Style", lang: lang)) {
+                ForEach(MenuBarStyle.allCases) { style in
+                    styleOptionRow(style: style, lang: lang)
                 }
-                .pickerStyle(.segmented)
 
-                Toggle(BaroL10n.t("在菜单栏左侧显示晴雨表图标", "Show barometer icon in menu bar", lang: lang), isOn: $settings.showMenuBarIcon)
+                Toggle(BaroL10n.t("显示晴雨表动态表盘图标", "Show dynamic barometer dial icon", lang: lang), isOn: $settings.showMenuBarIcon)
             }
 
             Section(BaroL10n.t("菜单栏显示指标（建议 2–3 项）", "Visible Metrics (2–3 Recommended)", lang: lang)) {
@@ -129,6 +123,110 @@ public struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func liveMenuBarPreviewStrip(lang: ResolvedLanguage) -> some View {
+        let appearanceName: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        let previewAppearance = NSAppearance(named: appearanceName) ?? NSApp.effectiveAppearance
+        let previewImg = MenuBarImageRenderer.render(
+            data: samplePreviewData,
+            settings: settings,
+            appearance: previewAppearance
+        )
+
+        return HStack(spacing: 0) {
+            Text(BaroL10n.t("菜单栏光学比例参考", "Optical Scale Reference", lang: lang))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 11) {
+                Image(nsImage: previewImg)
+                    .interpolation(.high)
+
+                Image(systemName: "wifi")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.88))
+
+                Image(systemName: "switch.2")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(0.88))
+
+                Text("9:41")
+                    .font(.system(size: 12, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary.opacity(0.92))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.6)
+                    )
+            )
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func styleOptionRow(style: MenuBarStyle, lang: ResolvedLanguage) -> some View {
+        let isSelected = settings.menuBarStyle == style
+        return Button {
+            settings.menuBarStyle = style
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: styleSymbolName(for: style))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(BaroL10n.menuBarStyleTitle(style, lang: lang))
+                        .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(.primary)
+                    Text(BaroL10n.menuBarStyleSubtitle(style, lang: lang))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.45))
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func styleSymbolName(for style: MenuBarStyle) -> String {
+        switch style {
+        case .compactDualRow: return "rectangle.split.1x2"
+        case .singleLine: return "capsule"
+        case .sparkline: return "waveform.path.ecg.rectangle"
+        case .miniBars: return "slider.vertical.3"
+        case .breathingDot: return "smallcircle.filled.circle"
+        }
+    }
+
+    private var samplePreviewData: MenuBarRenderData {
+        var d = MenuBarRenderData.empty
+        d.cpuPercent = 18
+        d.memoryPercent = 64
+        d.memoryPressure = .normal
+        d.uploadBytesPerSec = 42 * 1_024
+        d.downloadBytesPerSec = 3.8 * 1_024 * 1_024
+        d.temperatureCelsius = 42
+        d.packageWatts = 14.2
+        d.isPowerAvailable = true
+        d.healthLevel = .calm
+        d.cpuSparklinePoints = [12, 16, 14, 28, 22, 19, 34, 26, 15, 18]
+        return d
     }
 
     private func modulesTab(lang: ResolvedLanguage) -> some View {

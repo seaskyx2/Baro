@@ -42,34 +42,26 @@ public enum BaroL10n {
 
     public static func menuBarStyleTitle(_ style: MenuBarStyle, lang: ResolvedLanguage) -> String {
         switch style {
-        case .compactDualRow: return t("双行精工", "Compact Dual-Row", lang: lang)
-        case .singleLine: return t("单行清爽", "Single Line", lang: lang)
-        case .sparkline: return t("微图表", "Sparkline", lang: lang)
-        case .miniBars: return t("双柱仪表", "Mini Bars", lang: lang)
-        case .breathingDot: return t("静默呼吸点", "Breathing Dot", lang: lang)
+        case .compactDualRow: return t("双行精工", "Dual-Row Precision", lang: lang)
+        case .singleLine: return t("单行胶囊", "Inline Pill", lang: lang)
+        case .sparkline: return t("脉搏微图", "Pulse Graph", lang: lang)
+        case .miniBars: return t("精工双柱", "Micro Meters", lang: lang)
+        case .breathingDot: return t("灵动圆环", "Halo Dot", lang: lang)
         }
     }
 
     public static func menuBarStyleSubtitle(_ style: MenuBarStyle, lang: ResolvedLanguage) -> String {
         switch style {
         case .compactDualRow:
-            return t("单槽位双行紧凑排布，省空间无遮挡", "Single-slot dual-row layout, crisp & notch-safe", lang: lang)
+            return t("微分割双行精密排布，紧凑防遮挡", "Hairline-divided dual-row instrument layout", lang: lang)
         case .singleLine:
-            return t("单行横向直读，大屏清晰舒展", "Clean horizontal readout on one line", lang: lang)
+            return t("微缩硬件符号与圆角浅框，大屏舒展直读", "Micro hardware glyphs framed in a sleek subtle pill", lang: lang)
         case .sparkline:
-            return t("CPU 实时微曲线 + 内存比例胶囊", "Live CPU sparkline + memory capsule", lang: lang)
+            return t("平滑面积波形视窗 + 内存圆环微表盘", "Smooth area waveform viewport + memory ring gauge", lang: lang)
         case .miniBars:
-            return t("极简 CPU / 内存双柱，极省刘海屏空间", "Ultra-compact vertical CPU & RAM bars for notched screens", lang: lang)
+            return t("原生单色双槽液位表，极致节省刘海空间", "Native monochrome twin capsule meters for notched screens", lang: lang)
         case .breathingDot:
-            return t("平常仅显示状态呼吸点，高压时浮现占用图标", "Calm status dot; reveals top app icon under high load", lang: lang)
-        }
-    }
-
-    public static func menuBarDensityTitle(_ density: MenuBarDensity, lang: ResolvedLanguage) -> String {
-        switch density {
-        case .compact: return t("紧凑", "Compact", lang: lang)
-        case .standard: return t("标准", "Standard", lang: lang)
-        case .relaxed: return t("舒展", "Relaxed", lang: lang)
+            return t("同心光晕状态灯，高压时浮现占用图标", "Concentric halo dot; reveals top app icon under high load", lang: lang)
         }
     }
 

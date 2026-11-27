@@ -30,19 +30,19 @@ Baro occupies only **1 single menu bar slot**, preventing overlap or ordering is
   * **Open Baro Dashboard**
   * **Copy System Snapshot** (sanitized plain-text report with zero IPs or personal paths)
   * **Preferences…** (`Command + ,`)
-  * **Menu Bar Style ▸** (instant 1-click switching across all 5 styles)
-  * **Menu Bar Spacing ▸** (Compact / Standard / Relaxed)
+  * **Menu Bar Style ▸** (instant 1-click switching across all 5 precision styles)
+  * **Show Barometer Icon** (toggle the dynamic load-deflecting dial)
   * **User Guide** / **About Baro**
   * **Quit Baro** (`Command + Q`)
 
-### Five Menu Bar Display Styles
-Switch anytime via the right-click menu or **Preferences → Menu Bar**, alongside 3 spacing densities (**Compact / Standard / Relaxed**) and the optional barometer icon toggle:
+### Five Precision Menu Bar Styles
+Switch anytime via the right-click menu or **Preferences → Menu Bar** (which includes a live 1:1 optical scale preview strip):
 
-1. **Compact Dual-Row (Default)**: Tight two-line single-slot capsule showing CPU, Memory, Network Up/Down, Temperature, or Power with zero excess gaps.
-2. **Single Line**: Clean horizontal readout (e.g., `C 14% · M 64% · ↓4.2M`) ideal for external displays.
-3. **Sparkline**: Live miniature CPU history curve paired with a memory capsule bar.
-4. **Mini Bars**: Ultra-compact vertical CPU & Memory bars designed for notched MacBooks.
-5. **Breathing Dot**: Ultra-minimal status dot + CPU%; reveals the top CPU-consuming app icon next to the dot under high load.
+1. **Dual-Row Precision (Default)**: Hairline-divided dual-row instrument layout showing CPU, Memory, Network Up/Down, Temperature, or Power with zero dead space.
+2. **Inline Pill**: Crisp vector hardware micro-glyphs framed inside a subtle rounded pill badge, ideal for external displays.
+3. **Pulse Graph**: Smooth area-filled CPU waveform viewport paired with a miniature circular memory ring gauge.
+4. **Micro Meters**: Native monochrome twin vertical capsule meters (turning amber/coral only under high load), ultra-compact for notched MacBooks.
+5. **Halo Dot**: Concentric jewel-like halo status indicator; reveals the top CPU-consuming app icon under high load.
 
 ---
 
@@ -82,7 +82,7 @@ Left-click the menu bar capsule to reveal the Bento dashboard:
 Open Preferences via the `⚙` gear button on the dashboard or right-click menu:
 
 * **General**: Launch at login (`SMAppService.mainApp`, requires `Baro.app` in `/Applications`), Low Power Mode interval scaling, and independent Cold (collapsed) / Hot (expanded) refresh intervals.
-* **Menu Bar**: Choose between the 3 menu bar styles and toggle individual metrics (2–3 metrics recommended for a clean look).
+* **Menu Bar**: Live 1:1 optical preview strip, 5 precision display styles, dynamic barometer dial icon toggle, and individual metric toggles (2–3 metrics recommended).
 * **Modules & Alerts**: Toggle any dashboard card, preview the laptop battery card on desktops, and optionally enable read-only notifications (all off by default; 10-minute cooldown) for thermal threshold, critical memory pressure, or low battery (≤ 15%).
 
 ---
