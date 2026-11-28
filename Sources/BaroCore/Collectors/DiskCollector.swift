@@ -51,6 +51,18 @@ public final class DiskCollector: @unchecked Sendable {
         )
     }
 
+    /// 供后台冷态菜单栏极轻量读取挂载卷剩余空间（不触发块设备统计与 SMART 查询）
+    public func sampleVolumesOnly() -> DiskSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return DiskSnapshot(
+            readBytesPerSec: 0,
+            writeBytesPerSec: 0,
+            volumes: readVolumes(),
+            smart: cachedSmartSnapshot
+        )
+    }
+
     private func readSmartWithThrottle(now: Date) -> NVMeSmartSnapshot? {
         if let last = lastSmartFetchAt, now.timeIntervalSince(last) < 60.0 {
             return cachedSmartSnapshot
@@ -135,9 +147,11 @@ public final class DiskCollector: @unchecked Sendable {
                 continue
             }
             guard let total = values.volumeTotalCapacity, total > 0 else { continue }
-            let availableInt64 = values.volumeAvailableCapacityForImportantUsage
+            let strictAvail = UInt64(max(0, values.volumeAvailableCapacity ?? 0))
+            let importantInt64 = values.volumeAvailableCapacityForImportantUsage
                 ?? Int64(values.volumeAvailableCapacity ?? 0)
-            let available = UInt64(max(0, availableInt64))
+            let available = max(strictAvail, UInt64(max(0, importantInt64)))
+            let purgeable = available > strictAvail ? (available - strictAvail) : 0
             let name = values.volumeName ?? url.lastPathComponent
             let isInternal = values.volumeIsInternal ?? false
 
@@ -153,6 +167,7 @@ public final class DiskCollector: @unchecked Sendable {
                     mountPath: path,
                     totalBytes: UInt64(total),
                     availableBytes: available,
+                    purgeableBytes: purgeable,
                     isInternal: isInternal
                 )
             )

@@ -97,6 +97,25 @@ extension MenuBarImageRenderer {
             pins.lineCapStyle = .round
             pins.stroke()
 
+        case .disk:
+            let bodyRect = NSRect(x: cx - 4.3, y: cy - 3.1, width: 8.6, height: 6.2)
+            let outer = NSBezierPath(roundedRect: bodyRect, xRadius: 1.4, yRadius: 1.4)
+            outer.lineWidth = 1.05
+            color.setStroke()
+            outer.stroke()
+
+            // Front bay separator line
+            let bay = NSBezierPath()
+            bay.move(to: NSPoint(x: bodyRect.minX + 0.6, y: cy - 0.7))
+            bay.line(to: NSPoint(x: bodyRect.maxX - 0.6, y: cy - 0.7))
+            bay.lineWidth = 0.85
+            color.setStroke()
+            bay.stroke()
+
+            // Drive activity LED dot
+            color.setFill()
+            NSBezierPath(ovalIn: NSRect(x: cx + 1.8, y: cy - 2.45, width: 1.3, height: 1.3)).fill()
+
         case .netUp:
             drawMicroArrow(in: rect, up: true, color: color)
 
@@ -193,6 +212,46 @@ extension MenuBarImageRenderer {
         arc.lineCapStyle = .round
         progressColor.setStroke()
         arc.stroke()
+    }
+
+    /// 双行精工磁盘区块：上排显示 `SSD` + 剩余容量（如 `245G`），下排显示迷你液位胶囊 + 已用百分比（如 `51%`）
+    static func drawDualDiskBlock(
+        startX: CGFloat,
+        topY: CGFloat,
+        bottomY: CGFloat,
+        rowH: CGFloat,
+        totalW: CGFloat,
+        data: MenuBarRenderData,
+        diskColor: NSColor,
+        palette: RenderPalette
+    ) {
+        let freeStr = data.diskFreeBytes.map { ByteFormatter.compactDiskSize($0) } ?? "--G"
+        let freeW = totalW - dualDiskLabelRefW - 2.0
+        drawText("SSD", in: NSRect(x: startX, y: topY, width: dualDiskLabelRefW, height: rowH), font: dualLabelFont, color: palette.secondary, alignment: .left, kern: 0.3)
+        drawText(freeStr, in: NSRect(x: startX + dualDiskLabelRefW + 2.0, y: topY, width: freeW, height: rowH), font: dualValueFont, color: diskColor, alignment: .right)
+
+        let pctVal = data.diskUsedPercent ?? 0
+        let pctStr = data.diskUsedPercent.map { "\(Int($0.rounded()))%" } ?? "--%"
+        let barW: CGFloat = 16.5
+        let barH: CGFloat = 3.8
+        let barRect = NSRect(x: startX, y: bottomY + (rowH - barH) * 0.5, width: barW, height: barH)
+        let barTrack = NSBezierPath(roundedRect: barRect.insetBy(dx: 0.35, dy: 0.35), xRadius: 1.8, yRadius: 1.8)
+        palette.subtleFill.setFill()
+        barTrack.fill()
+
+        NSGraphicsContext.saveGraphicsState()
+        barTrack.addClip()
+        let fillRatio = CGFloat(min(1.0, max(0.08, pctVal / 100.0)))
+        diskColor.setFill()
+        NSBezierPath(rect: NSRect(x: barRect.minX, y: barRect.minY, width: barRect.width * fillRatio, height: barRect.height)).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        barTrack.lineWidth = 0.7
+        palette.meterFrame.setStroke()
+        barTrack.stroke()
+
+        let pctW = totalW - barW - 2.0
+        drawText(pctStr, in: NSRect(x: startX + barW + 2.0, y: bottomY, width: pctW, height: rowH), font: dualValueFont, color: diskColor == palette.primary ? palette.secondary : diskColor, alignment: .right)
     }
 
     static func drawDualNetworkBlock(
@@ -325,6 +384,25 @@ extension MenuBarImageRenderer {
     static func thermalNSColor(_ celsius: Double, fallback: NSColor) -> NSColor {
         if celsius >= 88 { return NSColor(calibratedRed: 0.98, green: 0.30, blue: 0.26, alpha: 1.0) }
         if celsius >= 75 { return NSColor(calibratedRed: 0.98, green: 0.64, blue: 0.12, alpha: 1.0) }
+        return fallback
+    }
+
+    static func isDiskSpaceTight(freeBytes: UInt64?, usedPercent: Double?) -> Bool {
+        if let free = freeBytes, free < 25_000_000_000 { return true }
+        if let pct = usedPercent, pct >= 90.0 { return true }
+        return false
+    }
+
+    static func diskNSColor(freeBytes: UInt64?, usedPercent: Double?, fallback: NSColor) -> NSColor {
+        if let free = freeBytes, free < 12_000_000_000 {
+            return NSColor(calibratedRed: 0.98, green: 0.30, blue: 0.26, alpha: 1.0)
+        }
+        if let pct = usedPercent, pct >= 95.0 {
+            return NSColor(calibratedRed: 0.98, green: 0.30, blue: 0.26, alpha: 1.0)
+        }
+        if isDiskSpaceTight(freeBytes: freeBytes, usedPercent: usedPercent) {
+            return NSColor(calibratedRed: 0.98, green: 0.64, blue: 0.12, alpha: 1.0)
+        }
         return fallback
     }
 }

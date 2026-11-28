@@ -69,9 +69,17 @@ public enum BaroL10n {
         switch metric {
         case .cpu: return t("CPU 占用率", "CPU Usage", lang: lang)
         case .memory: return t("统一内存占用率", "Memory Usage", lang: lang)
+        case .disk: return t("主磁盘剩余空间 / 占用", "Disk Free Space / Usage", lang: lang)
         case .network: return t("实时上传 / 下载网速", "Network Speed (Up / Down)", lang: lang)
         case .temperature: return t("SoC 芯片温度", "SoC Temperature", lang: lang)
         case .power: return t("整机实时功耗（W）", "System Power (W)", lang: lang)
+        }
+    }
+
+    public static func menuBarDiskFormatTitle(_ fmt: MenuBarDiskFormat, lang: ResolvedLanguage) -> String {
+        switch fmt {
+        case .freeSpace: return t("剩余可用容量（如 245G）", "Free Space (e.g. 245G)", lang: lang)
+        case .usedPercent: return t("已用百分比（如 72%）", "Used Percent (e.g. 72%)", lang: lang)
         }
     }
 

@@ -12,6 +12,8 @@ extension MenuBarImageRenderer {
         showIcon: Bool,
         showCPU: Bool,
         showMemory: Bool,
+        showDisk: Bool,
+        diskFormat: MenuBarDiskFormat,
         showNetwork: Bool,
         showTemperature: Bool,
         showPower: Bool,
@@ -19,10 +21,11 @@ extension MenuBarImageRenderer {
     ) {
         var x = startX
         let hasCore = showCPU || showMemory
+        let hasDisk = showDisk
         let hasNet = showNetwork
         let hasTP = showTemperature || showPower
 
-        if !hasCore && !hasNet && !hasTP {
+        if !hasCore && !hasDisk && !hasNet && !hasTP {
             if !showIcon {
                 let iconRect = NSRect(x: x, y: (bounds.height - baroIconSize) * 0.5, width: baroIconSize, height: baroIconSize)
                 drawBarometerSymbol(in: iconRect, loadPercent: data.cpuPercent, color: palette.primary)
@@ -77,6 +80,43 @@ extension MenuBarImageRenderer {
                 )
             }
             x += coreW
+            if hasDisk || hasNet || hasTP {
+                drawHairlineDivider(at: x + 4.0, bounds: bounds, color: palette.subtleStroke)
+                x += dividerTotalWidth
+            }
+        }
+
+        if hasDisk {
+            let otherActive = hasCore || hasNet || hasTP
+            let diskColor = diskNSColor(freeBytes: data.diskFreeBytes, usedPercent: data.diskUsedPercent, fallback: palette.primary)
+            if otherActive {
+                let diskW = dualDiskBlockWidth(data: data)
+                drawDualDiskBlock(
+                    startX: x,
+                    topY: topY,
+                    bottomY: bottomY,
+                    rowH: rowH,
+                    totalW: diskW,
+                    data: data,
+                    diskColor: diskColor,
+                    palette: palette
+                )
+                x += diskW
+            } else {
+                let slotW = inlineDiskSlotWidth(data: data, format: diskFormat)
+                let text = formatInlineDiskText(data: data, format: diskFormat)
+                drawCenteredGlyphReadout(
+                    kind: .disk,
+                    text: text,
+                    slotRect: NSRect(x: x, y: 0, width: slotW, height: bounds.height),
+                    glyphWidth: 9.5,
+                    gap: 2.5,
+                    glyphColor: palette.secondary,
+                    textColor: diskColor
+                )
+                x += slotW
+            }
+
             if hasNet || hasTP {
                 drawHairlineDivider(at: x + 4.0, bounds: bounds, color: palette.subtleStroke)
                 x += dividerTotalWidth
@@ -135,6 +175,8 @@ extension MenuBarImageRenderer {
         data: MenuBarRenderData,
         showCPU: Bool,
         showMemory: Bool,
+        showDisk: Bool,
+        diskFormat: MenuBarDiskFormat,
         showNetwork: Bool,
         showTemperature: Bool,
         showPower: Bool,
@@ -152,6 +194,12 @@ extension MenuBarImageRenderer {
             let tw = max(inlinePctRefW, measureWidth(s, font: inlineValueFont))
             let c = data.memoryPressure == .normal ? primary : healthNSColor(.elevated)
             list.append(InlineToken(kind: .memory, glyphWidth: 10.0, gap: 2.5, text: s, slotWidth: 10.0 + 2.5 + tw, color: c))
+        }
+        if showDisk {
+            let s = formatInlineDiskText(data: data, format: diskFormat)
+            let slotW = inlineDiskSlotWidth(data: data, format: diskFormat)
+            let c = diskNSColor(freeBytes: data.diskFreeBytes, usedPercent: data.diskUsedPercent, fallback: primary)
+            list.append(InlineToken(kind: .disk, glyphWidth: 9.5, gap: 2.5, text: s, slotWidth: slotW, color: c))
         }
         if showNetwork {
             let isUp = data.uploadBytesPerSec > data.downloadBytesPerSec && data.uploadBytesPerSec > 1_024
@@ -179,6 +227,8 @@ extension MenuBarImageRenderer {
         showIcon: Bool,
         showCPU: Bool,
         showMemory: Bool,
+        showDisk: Bool,
+        diskFormat: MenuBarDiskFormat,
         showNetwork: Bool,
         showTemperature: Bool,
         showPower: Bool,
@@ -203,6 +253,8 @@ extension MenuBarImageRenderer {
             data: data,
             showCPU: showCPU,
             showMemory: showMemory,
+            showDisk: showDisk,
+            diskFormat: diskFormat,
             showNetwork: showNetwork,
             showTemperature: showTemperature,
             showPower: showPower,
@@ -256,6 +308,8 @@ extension MenuBarImageRenderer {
         bounds: NSRect,
         data: MenuBarRenderData,
         showMemory: Bool,
+        showDisk: Bool,
+        diskFormat: MenuBarDiskFormat,
         showNetwork: Bool,
         palette: RenderPalette
     ) {
@@ -289,7 +343,6 @@ extension MenuBarImageRenderer {
         points.reserveCapacity(rawPts.count)
         for (idx, val) in rawPts.enumerated() {
             let linear = min(1.0, max(0.0, val / 100.0))
-            // 温和非线性抬升低负载可见度，避免 10%-20% 轻负载波形贴死底边
             let visualRatio = CGFloat(pow(linear, 0.82))
             let px = viewportRect.minX + padX + CGFloat(idx) * stepX
             let py = viewportRect.minY + padBottom + visualRatio * plotH
@@ -349,6 +402,24 @@ extension MenuBarImageRenderer {
             x += memW
         }
 
+        if showDisk {
+            drawHairlineDivider(at: x + 4.0, bounds: bounds, color: palette.subtleStroke)
+            x += dividerTotalWidth
+            let slotW = inlineDiskSlotWidth(data: data, format: diskFormat)
+            let text = formatInlineDiskText(data: data, format: diskFormat)
+            let diskColor = diskNSColor(freeBytes: data.diskFreeBytes, usedPercent: data.diskUsedPercent, fallback: palette.primary)
+            drawCenteredGlyphReadout(
+                kind: .disk,
+                text: text,
+                slotRect: NSRect(x: x, y: 0, width: slotW, height: bounds.height),
+                glyphWidth: 9.5,
+                gap: 2.5,
+                glyphColor: palette.secondary,
+                textColor: diskColor
+            )
+            x += slotW
+        }
+
         if showNetwork {
             drawHairlineDivider(at: x + 4.0, bounds: bounds, color: palette.subtleStroke)
             x += dividerTotalWidth
@@ -365,6 +436,8 @@ extension MenuBarImageRenderer {
         data: MenuBarRenderData,
         showCPU: Bool,
         showMemory: Bool,
+        showDisk: Bool,
+        diskFormat: MenuBarDiskFormat,
         showNetwork: Bool,
         palette: RenderPalette
     ) {
@@ -408,6 +481,24 @@ extension MenuBarImageRenderer {
             x += pctW
         }
 
+        if showDisk {
+            drawHairlineDivider(at: x + 4.0, bounds: bounds, color: palette.subtleStroke)
+            x += dividerTotalWidth
+            let slotW = inlineDiskSlotWidth(data: data, format: diskFormat)
+            let text = formatInlineDiskText(data: data, format: diskFormat)
+            let diskColor = diskNSColor(freeBytes: data.diskFreeBytes, usedPercent: data.diskUsedPercent, fallback: palette.primary)
+            drawCenteredGlyphReadout(
+                kind: .disk,
+                text: text,
+                slotRect: NSRect(x: x, y: 0, width: slotW, height: bounds.height),
+                glyphWidth: 9.5,
+                gap: 2.5,
+                glyphColor: palette.secondary,
+                textColor: diskColor
+            )
+            x += slotW
+        }
+
         if showNetwork {
             drawHairlineDivider(at: x + 4.0, bounds: bounds, color: palette.subtleStroke)
             x += dividerTotalWidth
@@ -448,6 +539,8 @@ extension MenuBarImageRenderer {
         bounds: NSRect,
         data: MenuBarRenderData,
         showCPU: Bool,
+        showDisk: Bool,
+        diskFormat: MenuBarDiskFormat,
         palette: RenderPalette
     ) {
         var x = startX
@@ -483,6 +576,24 @@ extension MenuBarImageRenderer {
             let cpuStr = "\(Int(data.cpuPercent.rounded()))%"
             let cpuW = max(inlinePctRefW, measureWidth(cpuStr, font: inlineValueFont))
             drawText(cpuStr, in: NSRect(x: x, y: 0, width: cpuW, height: bounds.height), font: inlineValueFont, color: palette.primary, alignment: .right)
+            x += cpuW
+        }
+
+        if showDisk {
+            drawHairlineDivider(at: x + 4.0, bounds: bounds, color: palette.subtleStroke)
+            x += dividerTotalWidth
+            let slotW = inlineDiskSlotWidth(data: data, format: diskFormat)
+            let text = formatInlineDiskText(data: data, format: diskFormat)
+            let diskColor = diskNSColor(freeBytes: data.diskFreeBytes, usedPercent: data.diskUsedPercent, fallback: palette.primary)
+            drawCenteredGlyphReadout(
+                kind: .disk,
+                text: text,
+                slotRect: NSRect(x: x, y: 0, width: slotW, height: bounds.height),
+                glyphWidth: 9.5,
+                gap: 2.5,
+                glyphColor: palette.secondary,
+                textColor: diskColor
+            )
         }
     }
 }

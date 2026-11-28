@@ -68,7 +68,7 @@ Left-click the menu bar capsule to reveal the Bento dashboard:
 * **Unified Memory**: Matches macOS Activity Monitor accounting (`App + Wired + Compressed`), visualized via a tri-color stacked bar alongside Swap usage and kernel memory pressure level.
 * **Power & GPU**: Reads Apple Silicon GPU utilization and energy via `libIOReport` without `sudo`, supplemented by `PowerTelemetryData` and read-only `AppleSMC` total system power readings.
 * **Network Throughput**: Tracks live download (`↓`) / upload (`↑`) speeds across active physical interfaces, local IPv4 address, and session cumulative traffic.
-* **Disk Storage**: Tracks primary volume usage and live block storage read/write throughput.
+* **Disk Space**: Highlights **available free space** right in the card header (turning amber/coral when below 25 GB / 12 GB), paired with used/total accounting and live I/O rates; click to expand **macOS Purgeable cache size**, external volume bars, and NVMe S.M.A.R.T. health/TBW. Disk free space can also be pinned directly in the **menu bar** with optional low-space alerts.
 * **Power & Battery (Adaptive Dual-Mode)**:
   * **MacBook (Internal Battery)**: Ring charge gauge, real-time charge/discharge wattage, battery health %, cycle count, battery temperature, adapter wattage, estimated time remaining, and Apple HID peripheral battery levels.
   * **Desktop Mac (Mac mini / Mac Studio / iMac)**: Automatically switches to AC Power telemetry (live system input watts when exposed by hardware) plus Apple Magic Mouse/Keyboard/Trackpad battery levels via `IOKit HID` (no Bluetooth permission prompt). You can also toggle **"Preview Laptop Battery Card on Desktop"** in Preferences to inspect the full battery layout.

@@ -4,7 +4,7 @@ import BaroCore
 /// 原生菜单栏精工光学渲染器（入口、签名与精确几何宽度）：
 /// - 日常状态全系支持 `isTemplate = true`（除同心光晕呼吸灯外），交由 macOS WindowServer 与 Liquid Glass
 ///   按底层壁纸实时反色与亚像素锐化，清晰度与系统原生 Wi-Fi / 电池图标完全一致；
-/// - 含语义彩色状态（灵动圆环或高温/高负载预警）时，自动依据菜单栏外观采用 100% 纯白/纯黑高对比度渲染；
+/// - 含语义彩色状态（灵动圆环或高温/高负载/低磁盘空间预警）时，自动依据菜单栏外观采用 100% 纯白/纯黑高对比度渲染；
 /// - 布局采用紧凑字体基准槽（Compact Reference Slot + Overflow Guard），兼顾零内部空洞与零数字抖动。
 @MainActor
 public enum MenuBarImageRenderer {
@@ -24,11 +24,14 @@ public enum MenuBarImageRenderer {
     static let dividerTotalWidth: CGFloat = 8.5 // 4.0 + 0.5 hairline + 4.0
 
     static let dualLabelRefW: CGFloat = measureWidth("MEM", font: dualLabelFont, kern: 0.3)
+    static let dualDiskLabelRefW: CGFloat = measureWidth("SSD", font: dualLabelFont, kern: 0.3)
     static let dualPctRefW: CGFloat = measureWidth("99%", font: dualValueFont)
+    static let dualDiskFreeRefW: CGFloat = measureWidth("888G", font: dualValueFont)
     static let dualRateRefW: CGFloat = measureWidth("888K", font: dualValueFont)
     static let dualTempPowerRefW: CGFloat = measureWidth("88.8W", font: dualValueFont)
 
     static let inlinePctRefW: CGFloat = measureWidth("99%", font: inlineValueFont)
+    static let inlineDiskFreeRefW: CGFloat = measureWidth("888G", font: inlineValueFont)
     static let inlineRateRefW: CGFloat = measureWidth("888K", font: inlineValueFont)
     static let inlineTempRefW: CGFloat = measureWidth("99°", font: inlineValueFont)
     static let inlinePowerRefW: CGFloat = measureWidth("99W", font: inlineValueFont)
@@ -47,6 +50,7 @@ public enum MenuBarImageRenderer {
     enum MicroGlyphKind {
         case cpu
         case memory
+        case disk
         case netUp
         case netDown
         case temperature
@@ -74,6 +78,12 @@ public enum MenuBarImageRenderer {
 
         let cpuBucket = Int(data.cpuPercent.rounded())
         let memBucket = Int(data.memoryPercent.rounded())
+        let diskSig: String = {
+            guard settings.showMenuDisk else { return "" }
+            let freePart = data.diskFreeBytes.map { ByteFormatter.compactDiskSize($0) } ?? "--"
+            let pctPart = data.diskUsedPercent.map { "\(Int($0.rounded()))" } ?? "--"
+            return "\(settings.menuBarDiskFormat.rawValue):\(freePart):\(pctPart)"
+        }()
         let upStr = settings.showMenuNetwork ? ByteFormatter.compactRate(data.uploadBytesPerSec) : ""
         let downStr = settings.showMenuNetwork ? ByteFormatter.compactRate(data.downloadBytesPerSec) : ""
         let netUpDominant = (style == .singleLine && settings.showMenuNetwork && data.uploadBytesPerSec > data.downloadBytesPerSec && data.uploadBytesPerSec > 1_024) ? "U" : "D"
@@ -89,6 +99,7 @@ public enum MenuBarImageRenderer {
             settings.showMenuBarIcon ? "1" : "0",
             settings.showMenuCPU ? "1" : "0",
             settings.showMenuMemory ? "1" : "0",
+            settings.showMenuDisk ? "1" : "0",
             settings.showMenuNetwork ? "1" : "0",
             settings.showMenuTemperature ? "1" : "0",
             settings.showMenuPower ? "1" : "0",
@@ -96,6 +107,7 @@ public enum MenuBarImageRenderer {
             "\(cpuBucket)",
             "\(memBucket)",
             data.memoryPressure.rawValue,
+            diskSig,
             upStr,
             downStr,
             netUpDominant,
@@ -142,6 +154,8 @@ public enum MenuBarImageRenderer {
         let showIcon = settings.showMenuBarIcon
         let showCPU = settings.showMenuCPU
         let showMemory = settings.showMenuMemory
+        let showDisk = settings.showMenuDisk
+        let diskFormat = settings.menuBarDiskFormat
         let showNetwork = settings.showMenuNetwork
         let showTemperature = settings.showMenuTemperature
         let showPower = settings.showMenuPower
@@ -151,6 +165,7 @@ public enum MenuBarImageRenderer {
             style: style,
             showCPU: showCPU,
             showMemory: showMemory,
+            showDisk: showDisk,
             showTemperature: showTemperature
         )
         let palette = makePalette(hasColorAccent: hasColorAccent, appearance: appearance)
@@ -161,6 +176,8 @@ public enum MenuBarImageRenderer {
             showIcon: showIcon,
             showCPU: showCPU,
             showMemory: showMemory,
+            showDisk: showDisk,
+            diskFormat: diskFormat,
             showNetwork: showNetwork,
             showTemperature: showTemperature,
             showPower: showPower
@@ -203,6 +220,8 @@ public enum MenuBarImageRenderer {
                         showIcon: showIcon,
                         showCPU: showCPU,
                         showMemory: showMemory,
+                        showDisk: showDisk,
+                        diskFormat: diskFormat,
                         showNetwork: showNetwork,
                         showTemperature: showTemperature,
                         showPower: showPower,
@@ -222,6 +241,8 @@ public enum MenuBarImageRenderer {
                         showIcon: showIcon,
                         showCPU: showCPU,
                         showMemory: showMemory,
+                        showDisk: showDisk,
+                        diskFormat: diskFormat,
                         showNetwork: showNetwork,
                         showTemperature: showTemperature,
                         showPower: showPower,
@@ -239,6 +260,8 @@ public enum MenuBarImageRenderer {
                         bounds: bounds,
                         data: data,
                         showMemory: showMemory,
+                        showDisk: showDisk,
+                        diskFormat: diskFormat,
                         showNetwork: showNetwork,
                         palette: palette
                     )
@@ -255,6 +278,8 @@ public enum MenuBarImageRenderer {
                         data: data,
                         showCPU: showCPU,
                         showMemory: showMemory,
+                        showDisk: showDisk,
+                        diskFormat: diskFormat,
                         showNetwork: showNetwork,
                         palette: palette
                     )
@@ -270,6 +295,8 @@ public enum MenuBarImageRenderer {
                         bounds: bounds,
                         data: data,
                         showCPU: showCPU,
+                        showDisk: showDisk,
+                        diskFormat: diskFormat,
                         palette: palette
                     )
                 }
@@ -288,8 +315,12 @@ public enum MenuBarImageRenderer {
         style: MenuBarStyle,
         showCPU: Bool,
         showMemory: Bool,
+        showDisk: Bool,
         showTemperature: Bool
     ) -> Bool {
+        if showDisk && isDiskSpaceTight(freeBytes: data.diskFreeBytes, usedPercent: data.diskUsedPercent) {
+            return true
+        }
         switch style {
         case .breathingDot:
             return true
@@ -317,6 +348,8 @@ public enum MenuBarImageRenderer {
         showIcon: Bool,
         showCPU: Bool,
         showMemory: Bool,
+        showDisk: Bool = false,
+        diskFormat: MenuBarDiskFormat = .freeSpace,
         showNetwork: Bool,
         showTemperature: Bool,
         showPower: Bool
@@ -327,6 +360,8 @@ public enum MenuBarImageRenderer {
                 data: data,
                 showCPU: showCPU,
                 showMemory: showMemory,
+                showDisk: showDisk,
+                diskFormat: diskFormat,
                 showNetwork: showNetwork,
                 showTemperature: showTemperature,
                 showPower: showPower,
@@ -337,7 +372,7 @@ public enum MenuBarImageRenderer {
             if showIcon {
                 innerW += 12.0
                 if !items.isEmpty {
-                    innerW += 7.5 // 3.5 + hairline + 3.5
+                    innerW += 7.5
                 }
             }
             if items.isEmpty {
@@ -363,6 +398,8 @@ public enum MenuBarImageRenderer {
                 data: data,
                 showCPU: showCPU,
                 showMemory: showMemory,
+                showDisk: showDisk,
+                diskFormat: diskFormat,
                 showNetwork: showNetwork,
                 showTemperature: showTemperature,
                 showPower: showPower
@@ -390,6 +427,9 @@ public enum MenuBarImageRenderer {
                 let memW = max(inlinePctRefW, measureWidth(memStr, font: inlineValueFont))
                 w += dividerTotalWidth + 11.5 + 3.0 + memW
             }
+            if showDisk {
+                w += dividerTotalWidth + inlineDiskSlotWidth(data: data, format: diskFormat)
+            }
             if showNetwork {
                 w += dividerTotalWidth + dualNetworkBlockWidth(data: data)
             }
@@ -409,6 +449,9 @@ public enum MenuBarImageRenderer {
                 let s = "\(Int(val.rounded()))%"
                 w += 3.5 + max(inlinePctRefW, measureWidth(s, font: inlineValueFont))
             }
+            if showDisk {
+                w += dividerTotalWidth + inlineDiskSlotWidth(data: data, format: diskFormat)
+            }
             if showNetwork {
                 w += dividerTotalWidth + dualNetworkBlockWidth(data: data)
             }
@@ -425,8 +468,37 @@ public enum MenuBarImageRenderer {
                 let cpuStr = "\(Int(data.cpuPercent.rounded()))%"
                 w += 3.0 + max(inlinePctRefW, measureWidth(cpuStr, font: inlineValueFont))
             }
+            if showDisk {
+                w += dividerTotalWidth + inlineDiskSlotWidth(data: data, format: diskFormat)
+            }
             return ceil(w)
         }
+    }
+
+    static func formatInlineDiskText(data: MenuBarRenderData, format: MenuBarDiskFormat) -> String {
+        switch format {
+        case .freeSpace:
+            return data.diskFreeBytes.map { ByteFormatter.compactDiskSize($0) } ?? "--G"
+        case .usedPercent:
+            return data.diskUsedPercent.map { "\(Int($0.rounded()))%" } ?? "--%"
+        }
+    }
+
+    static func inlineDiskSlotWidth(data: MenuBarRenderData, format: MenuBarDiskFormat) -> CGFloat {
+        let text = formatInlineDiskText(data: data, format: format)
+        let refW = format == .freeSpace ? inlineDiskFreeRefW : inlinePctRefW
+        let tw = max(refW, measureWidth(text, font: inlineValueFont))
+        return 9.5 + 2.5 + tw
+    }
+
+    static func dualDiskBlockWidth(data: MenuBarRenderData) -> CGFloat {
+        let freeStr = data.diskFreeBytes.map { ByteFormatter.compactDiskSize($0) } ?? "--G"
+        let pctStr = data.diskUsedPercent.map { "\(Int($0.rounded()))%" } ?? "--%"
+        let freeW = max(dualDiskFreeRefW, measureWidth(freeStr, font: dualValueFont))
+        let pctW = max(dualPctRefW, measureWidth(pctStr, font: dualValueFont))
+        let topRowW = dualDiskLabelRefW + 2.0 + freeW
+        let bottomRowW = 16.5 + 2.5 + pctW
+        return max(topRowW, bottomRowW)
     }
 
     static func dualCoreBlockWidth(data: MenuBarRenderData, showCPU: Bool, showMemory: Bool) -> CGFloat {
@@ -467,6 +539,8 @@ public enum MenuBarImageRenderer {
         data: MenuBarRenderData,
         showCPU: Bool,
         showMemory: Bool,
+        showDisk: Bool,
+        diskFormat: MenuBarDiskFormat,
         showNetwork: Bool,
         showTemperature: Bool,
         showPower: Bool
@@ -474,6 +548,14 @@ public enum MenuBarImageRenderer {
         var widths: [CGFloat] = []
         if showCPU || showMemory {
             widths.append(dualCoreBlockWidth(data: data, showCPU: showCPU, showMemory: showMemory))
+        }
+        if showDisk {
+            let otherActive = showCPU || showMemory || showNetwork || showTemperature || showPower
+            if otherActive {
+                widths.append(dualDiskBlockWidth(data: data))
+            } else {
+                widths.append(inlineDiskSlotWidth(data: data, format: diskFormat))
+            }
         }
         if showNetwork {
             widths.append(dualNetworkBlockWidth(data: data))

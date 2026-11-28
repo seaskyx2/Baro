@@ -31,6 +31,10 @@ final class BaroCoreTests: XCTestCase {
 
         XCTAssertEqual(ByteFormatter.detailedRate(4.28 * 1_024 * 1_024), "4.28 MB/s")
         XCTAssertEqual(ByteFormatter.memorySize(16 * 1_024 * 1_024 * 1_024), "16.0 GB")
+        XCTAssertEqual(ByteFormatter.compactDiskSize(650_000_000), "650M")
+        XCTAssertEqual(ByteFormatter.compactDiskSize(38_400_000_000), "38.4G")
+        XCTAssertEqual(ByteFormatter.compactDiskSize(245_000_000_000), "245G")
+        XCTAssertEqual(ByteFormatter.compactDiskSize(1_420_000_000_000), "1.42T")
         XCTAssertEqual(ByteFormatter.uptime(3 * 86_400 + 14 * 3_600), "3d 14h")
     }
 
@@ -250,6 +254,17 @@ final class BaroCoreTests: XCTestCase {
         XCTAssertEqual(elevated.level, .elevated)
         XCTAssertTrue(elevated.message.contains("Xcode"))
         XCTAssertTrue(elevated.message.contains("High Load"))
+
+        // 验证低磁盘空间健康诊断
+        var lowDiskSnap = SystemSnapshot.empty
+        lowDiskSnap.disk = DiskSnapshot(
+            readBytesPerSec: 0,
+            writeBytesPerSec: 0,
+            volumes: [DiskVolume(name: "Macintosh HD", mountPath: "/", totalBytes: 500_000_000_000, availableBytes: 8_500_000_000, isInternal: true)]
+        )
+        let lowDiskHealth = HealthAnalyzer.analyze(snapshot: lowDiskSnap, language: .zhHans)
+        XCTAssertEqual(lowDiskHealth.level, .elevated)
+        XCTAssertTrue(lowDiskHealth.message.contains("磁盘空间告急"))
     }
 
     func testLocalizationResolution() {
@@ -404,14 +419,17 @@ final class BaroCoreTests: XCTestCase {
         settings.showMenuBarIcon = true
         settings.showMenuCPU = true
         settings.showMenuMemory = true
+        settings.showMenuDisk = true
         settings.showMenuNetwork = true
-        settings.showMenuTemperature = true
+        settings.showMenuTemperature = false
         settings.showMenuPower = false
 
         let calmData = MenuBarRenderData(
             cpuPercent: 18,
             memoryPercent: 64,
             memoryPressure: .normal,
+            diskFreeBytes: 245_000_000_000,
+            diskUsedPercent: 51,
             uploadBytesPerSec: 48 * 1_024,
             downloadBytesPerSec: 4.2 * 1_024 * 1_024,
             temperatureCelsius: 41,
@@ -426,6 +444,8 @@ final class BaroCoreTests: XCTestCase {
             cpuPercent: 88,
             memoryPercent: 86,
             memoryPressure: .warning,
+            diskFreeBytes: 9_200_000_000,
+            diskUsedPercent: 96,
             uploadBytesPerSec: 120 * 1_024,
             downloadBytesPerSec: 12.6 * 1_024 * 1_024,
             temperatureCelsius: 82,
@@ -563,15 +583,13 @@ final class BaroCoreTests: XCTestCase {
                 let imgLight = MenuBarImageRenderer.render(data: calmData, settings: settings, appearance: lightApp)
                 drawPreviewMenuBarImage(imgLight, at: NSPoint(x: lightBar.minX + 8, y: lightBar.minY + 2), templateTint: NSColor(calibratedWhite: 0.08, alpha: 1.0))
 
-                let hotBar = NSRect(x: 516, y: y + 1, width: 148, height: 26)
+                let hotBar = NSRect(x: 516, y: y + 1, width: 164, height: 26)
                 NSColor(calibratedRed: 0.20, green: 0.15, blue: 0.16, alpha: 1.0).setFill()
                 NSBezierPath(roundedRect: hotBar, xRadius: 6, yRadius: 6).fill()
                 settings.showMenuNetwork = false
-                settings.showMenuTemperature = false
                 let imgHot = MenuBarImageRenderer.render(data: hotData, settings: settings, appearance: darkApp)
                 drawPreviewMenuBarImage(imgHot, at: NSPoint(x: hotBar.minX + 8, y: hotBar.minY + 2), templateTint: .white)
                 settings.showMenuNetwork = true
-                settings.showMenuTemperature = true
             }
         }
         NSGraphicsContext.restoreGraphicsState()

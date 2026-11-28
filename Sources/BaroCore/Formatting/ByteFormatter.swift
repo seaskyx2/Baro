@@ -75,6 +75,24 @@ public enum ByteFormatter {
         return String(format: "%.2f TB", tb)
     }
 
+    /// 紧凑磁盘容量格式，专为菜单栏窄空间设计（1000 进制，与 Finder 口径一致，如 `850M`, `38.4G`, `245G`, `1.4T`）
+    public static func compactDiskSize(_ bytes: UInt64) -> String {
+        if bytes == 0 { return "0G" }
+        let mb = Double(bytes) / 1_000_000.0
+        if mb < 1_000 {
+            return "\(max(1, Int(mb.rounded())))M"
+        }
+        let gb = mb / 1_000.0
+        if gb < 100 {
+            return String(format: "%.1fG", gb)
+        }
+        if gb < 1_000 {
+            return "\(Int(gb.rounded()))G"
+        }
+        let tb = gb / 1_000.0
+        return tb >= 10 ? String(format: "%.1fT", tb) : String(format: "%.2fT", tb)
+    }
+
     public static func uptime(_ seconds: TimeInterval) -> String {
         let totalMinutes = max(0, Int(seconds) / 60)
         let days = totalMinutes / (24 * 60)

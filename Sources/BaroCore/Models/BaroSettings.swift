@@ -27,9 +27,17 @@ public enum GlobalHotKeyPreset: String, CaseIterable, Codable, Sendable, Identif
     }
 }
 
+public enum MenuBarDiskFormat: String, CaseIterable, Codable, Sendable, Identifiable {
+    case freeSpace
+    case usedPercent
+
+    public var id: String { rawValue }
+}
+
 public enum MenuBarMetric: String, CaseIterable, Codable, Sendable, Identifiable {
     case cpu
     case memory
+    case disk
     case network
     case temperature
     case power
@@ -45,6 +53,8 @@ public final class BaroSettings: ObservableObject {
         static let showMenuBarIcon = "baro.showMenuBarIcon"
         static let showMenuCPU = "baro.showMenuCPU"
         static let showMenuMemory = "baro.showMenuMemory"
+        static let showMenuDisk = "baro.showMenuDisk"
+        static let menuBarDiskFormat = "baro.menuBarDiskFormat"
         static let showMenuNetwork = "baro.showMenuNetwork"
         static let showMenuTemperature = "baro.showMenuTemperature"
         static let showMenuPower = "baro.showMenuPower"
@@ -66,6 +76,8 @@ public final class BaroSettings: ObservableObject {
         static let thermalAlertThreshold = "baro.thermalAlertThreshold"
         static let enableMemoryAlert = "baro.enableMemoryAlert"
         static let enableLowBatteryAlert = "baro.enableLowBatteryAlert"
+        static let enableLowDiskAlert = "baro.enableLowDiskAlert"
+        static let lowDiskAlertThresholdGB = "baro.lowDiskAlertThresholdGB"
     }
 
     private let defaults: UserDefaults
@@ -87,6 +99,12 @@ public final class BaroSettings: ObservableObject {
     }
     @Published public var showMenuMemory: Bool {
         didSet { defaults.set(showMenuMemory, forKey: Keys.showMenuMemory) }
+    }
+    @Published public var showMenuDisk: Bool {
+        didSet { defaults.set(showMenuDisk, forKey: Keys.showMenuDisk) }
+    }
+    @Published public var menuBarDiskFormat: MenuBarDiskFormat {
+        didSet { defaults.set(menuBarDiskFormat.rawValue, forKey: Keys.menuBarDiskFormat) }
     }
     @Published public var showMenuNetwork: Bool {
         didSet { defaults.set(showMenuNetwork, forKey: Keys.showMenuNetwork) }
@@ -154,6 +172,12 @@ public final class BaroSettings: ObservableObject {
     @Published public var enableLowBatteryAlert: Bool {
         didSet { defaults.set(enableLowBatteryAlert, forKey: Keys.enableLowBatteryAlert) }
     }
+    @Published public var enableLowDiskAlert: Bool {
+        didSet { defaults.set(enableLowDiskAlert, forKey: Keys.enableLowDiskAlert) }
+    }
+    @Published public var lowDiskAlertThresholdGB: Double {
+        didSet { defaults.set(lowDiskAlertThresholdGB, forKey: Keys.lowDiskAlertThresholdGB) }
+    }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -175,6 +199,13 @@ public final class BaroSettings: ObservableObject {
         self.showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
         self.showMenuCPU = defaults.object(forKey: Keys.showMenuCPU) as? Bool ?? true
         self.showMenuMemory = defaults.object(forKey: Keys.showMenuMemory) as? Bool ?? true
+        self.showMenuDisk = defaults.object(forKey: Keys.showMenuDisk) as? Bool ?? true
+        if let rawDiskFmt = defaults.string(forKey: Keys.menuBarDiskFormat),
+           let parsedDiskFmt = MenuBarDiskFormat(rawValue: rawDiskFmt) {
+            self.menuBarDiskFormat = parsedDiskFmt
+        } else {
+            self.menuBarDiskFormat = .freeSpace
+        }
         self.showMenuNetwork = defaults.object(forKey: Keys.showMenuNetwork) as? Bool ?? true
         self.showMenuTemperature = defaults.object(forKey: Keys.showMenuTemperature) as? Bool ?? false
         self.showMenuPower = defaults.object(forKey: Keys.showMenuPower) as? Bool ?? false
@@ -207,6 +238,9 @@ public final class BaroSettings: ObservableObject {
         self.thermalAlertThreshold = savedThermal > 0 ? savedThermal : 92.0
         self.enableMemoryAlert = defaults.object(forKey: Keys.enableMemoryAlert) as? Bool ?? false
         self.enableLowBatteryAlert = defaults.object(forKey: Keys.enableLowBatteryAlert) as? Bool ?? false
+        self.enableLowDiskAlert = defaults.object(forKey: Keys.enableLowDiskAlert) as? Bool ?? false
+        let savedLowDisk = defaults.double(forKey: Keys.lowDiskAlertThresholdGB)
+        self.lowDiskAlertThresholdGB = savedLowDisk > 0 ? savedLowDisk : 20.0
     }
 
     public var resolvedLanguage: ResolvedLanguage {
@@ -217,6 +251,7 @@ public final class BaroSettings: ObservableObject {
         var set: Set<MenuBarMetric> = []
         if showMenuCPU { set.insert(.cpu) }
         if showMenuMemory { set.insert(.memory) }
+        if showMenuDisk { set.insert(.disk) }
         if showMenuNetwork { set.insert(.network) }
         if showMenuTemperature { set.insert(.temperature) }
         if showMenuPower { set.insert(.power) }

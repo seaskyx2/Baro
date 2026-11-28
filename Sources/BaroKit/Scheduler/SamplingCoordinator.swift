@@ -217,11 +217,12 @@ public final class SamplingCoordinator: ObservableObject {
         let style = settings.menuBarStyle
         let needCPU = hot || settings.showMenuCPU || style == .sparkline || style == .miniBars || style == .breathingDot
         let needMemory = hot || settings.showMenuMemory || style == .sparkline || style == .miniBars
+        let needDisk = hot || settings.showMenuDisk || settings.enableLowDiskAlert
         let needNetwork = hot || settings.showMenuNetwork
         let needThermal = hot || settings.showMenuTemperature
         let needPower = hot || settings.showMenuPower
 
-        let includeDisk = hot && settings.showDiskCard
+        let includeDisk = hot && (settings.showDiskCard || settings.showMenuDisk || settings.enableLowDiskAlert)
         let includeBattery = hot && settings.showBatteryPowerCard
         let includeProcs = hot && (settings.showTopAppsSection || settings.menuBarStyle == .breathingDot)
 
@@ -251,6 +252,7 @@ public final class SamplingCoordinator: ObservableObject {
                     previous: prev,
                     needCPU: needCPU,
                     needMemory: needMemory,
+                    needDisk: needDisk,
                     needNetwork: needNetwork,
                     needThermal: needThermal,
                     needPower: needPower,
@@ -297,16 +299,19 @@ public final class SamplingCoordinator: ObservableObject {
 
         onMenuBarUpdate?(makeMenuBarRenderData(from: next, health: summary))
 
-        if isHot || settings.enableThermalAlert || settings.enableMemoryAlert || settings.enableLowBatteryAlert {
+        if isHot || settings.enableThermalAlert || settings.enableMemoryAlert || settings.enableLowBatteryAlert || settings.enableLowDiskAlert {
             evaluateAlertsIfEnabled(next)
         }
     }
 
     private func makeMenuBarRenderData(from snap: SystemSnapshot, health: HealthSummary) -> MenuBarRenderData {
-        MenuBarRenderData(
+        let primaryVol = snap.disk.primaryVolume
+        return MenuBarRenderData(
             cpuPercent: snap.cpu.totalUsagePercent,
             memoryPercent: snap.memory.usedPercent,
             memoryPressure: snap.memory.pressure,
+            diskFreeBytes: primaryVol?.availableBytes,
+            diskUsedPercent: primaryVol?.usedPercent,
             uploadBytesPerSec: snap.network.uploadBytesPerSec,
             downloadBytesPerSec: snap.network.downloadBytesPerSec,
             temperatureCelsius: snap.thermalFan.primaryTemperature,
@@ -364,6 +369,24 @@ public final class SamplingCoordinator: ObservableObject {
                     lang: lang
                 )
             )
+        }
+
+        if settings.enableLowDiskAlert,
+           let vol = snap.disk.primaryVolume,
+           vol.totalBytes > 0 {
+            let thresholdBytes = UInt64(max(1.0, settings.lowDiskAlertThresholdGB) * 1_000_000_000.0)
+            if vol.availableBytes <= thresholdBytes {
+                let freeStr = ByteFormatter.diskSize(vol.availableBytes)
+                sendNotificationIfNeeded(
+                    key: "disk",
+                    title: BaroL10n.t("Baro 磁盘空间提醒", "Baro Disk Space Alert", lang: lang),
+                    body: BaroL10n.t(
+                        "主磁盘剩余可用空间仅余 \(freeStr)。",
+                        "Primary disk free space is down to \(freeStr).",
+                        lang: lang
+                    )
+                )
+            }
         }
     }
 

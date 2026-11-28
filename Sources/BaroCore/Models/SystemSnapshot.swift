@@ -197,6 +197,7 @@ public struct DiskVolume: Sendable, Equatable, Identifiable {
     public let mountPath: String
     public let totalBytes: UInt64
     public let availableBytes: UInt64
+    public let purgeableBytes: UInt64
     public let isInternal: Bool
 
     public var usedBytes: UInt64 {
@@ -213,12 +214,14 @@ public struct DiskVolume: Sendable, Equatable, Identifiable {
         mountPath: String,
         totalBytes: UInt64,
         availableBytes: UInt64,
+        purgeableBytes: UInt64 = 0,
         isInternal: Bool
     ) {
         self.name = name
         self.mountPath = mountPath
         self.totalBytes = totalBytes
         self.availableBytes = availableBytes
+        self.purgeableBytes = purgeableBytes
         self.isInternal = isInternal
     }
 }

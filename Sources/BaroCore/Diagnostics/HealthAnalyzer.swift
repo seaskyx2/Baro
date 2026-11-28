@@ -12,12 +12,22 @@ public enum HealthAnalyzer {
         let pressure = snapshot.memory.pressure
         let swapBytes = snapshot.memory.swapUsedBytes
         let twoGB: UInt64 = 2 * 1_024 * 1_024 * 1_024
+        let primaryDisk = snapshot.disk.primaryVolume
 
         if temp >= 92.0 {
             let deg = Int(temp.rounded())
             return HealthSummary(
                 level: .elevated,
                 message: BaroL10n.t("温度偏高 · SoC \(deg)°C", "High Temp · SoC \(deg)°C", lang: language)
+            )
+        }
+
+        if let vol = primaryDisk, vol.totalBytes > 0,
+           (vol.availableBytes < 12_000_000_000 || vol.usedPercent >= 95.0) {
+            let freeStr = ByteFormatter.diskSize(vol.availableBytes)
+            return HealthSummary(
+                level: .elevated,
+                message: BaroL10n.t("磁盘空间告急 · 仅余 \(freeStr)", "Low Disk Space · Only \(freeStr) free", lang: language)
             )
         }
 
@@ -77,6 +87,15 @@ public enum HealthAnalyzer {
             return HealthSummary(
                 level: .moderate,
                 message: BaroL10n.t("轻度交换 · Swap \(sw)", "Active Swap · \(sw)", lang: language)
+            )
+        }
+
+        if let vol = primaryDisk, vol.totalBytes > 0,
+           (vol.availableBytes < 25_000_000_000 || vol.usedPercent >= 90.0) {
+            let freeStr = ByteFormatter.diskSize(vol.availableBytes)
+            return HealthSummary(
+                level: .moderate,
+                message: BaroL10n.t("磁盘空间偏紧 · 剩余 \(freeStr)", "Disk Space Tight · \(freeStr) free", lang: language)
             )
         }
 

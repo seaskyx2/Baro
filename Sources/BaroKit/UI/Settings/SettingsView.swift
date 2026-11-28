@@ -126,9 +126,17 @@ public struct SettingsView: View {
                 Toggle(BaroL10n.t("显示晴雨表动态表盘图标", "Show dynamic barometer dial icon", lang: lang), isOn: $settings.showMenuBarIcon)
             }
 
-            Section(BaroL10n.t("菜单栏显示指标（建议 2–3 项）", "Visible Metrics (2–3 Recommended)", lang: lang)) {
+            Section(BaroL10n.t("菜单栏显示指标（建议 2–4 项）", "Visible Metrics (2–4 Recommended)", lang: lang)) {
                 Toggle(BaroL10n.menuBarMetricTitle(.cpu, lang: lang), isOn: $settings.showMenuCPU)
                 Toggle(BaroL10n.menuBarMetricTitle(.memory, lang: lang), isOn: $settings.showMenuMemory)
+                Toggle(BaroL10n.menuBarMetricTitle(.disk, lang: lang), isOn: $settings.showMenuDisk)
+                if settings.showMenuDisk {
+                    Picker(BaroL10n.t("单行磁盘格式", "Inline Disk Format", lang: lang), selection: $settings.menuBarDiskFormat) {
+                        ForEach(MenuBarDiskFormat.allCases) { fmt in
+                            Text(BaroL10n.menuBarDiskFormatTitle(fmt, lang: lang)).tag(fmt)
+                        }
+                    }
+                }
                 Toggle(BaroL10n.menuBarMetricTitle(.network, lang: lang), isOn: $settings.showMenuNetwork)
                 Toggle(BaroL10n.menuBarMetricTitle(.temperature, lang: lang), isOn: $settings.showMenuTemperature)
                 Toggle(BaroL10n.menuBarMetricTitle(.power, lang: lang), isOn: $settings.showMenuPower)
@@ -231,6 +239,8 @@ public struct SettingsView: View {
         d.cpuPercent = 18
         d.memoryPercent = 64
         d.memoryPressure = .normal
+        d.diskFreeBytes = 245_000_000_000
+        d.diskUsedPercent = 51
         d.uploadBytesPerSec = 42 * 1_024
         d.downloadBytesPerSec = 3.8 * 1_024 * 1_024
         d.temperatureCelsius = 42
@@ -276,6 +286,19 @@ public struct SettingsView: View {
                     .onChange(of: settings.enableLowBatteryAlert) { _, val in
                         if val { SamplingCoordinator.requestNotificationPermissionIfNeeded() }
                     }
+                Toggle(BaroL10n.t("磁盘剩余空间不足提醒", "Low Disk Space Alert", lang: lang), isOn: $settings.enableLowDiskAlert)
+                    .onChange(of: settings.enableLowDiskAlert) { _, val in
+                        if val { SamplingCoordinator.requestNotificationPermissionIfNeeded() }
+                    }
+                if settings.enableLowDiskAlert {
+                    HStack {
+                        Text(BaroL10n.t("剩余空间阈值", "Free Space Threshold", lang: lang))
+                        Slider(value: $settings.lowDiskAlertThresholdGB, in: 10...100, step: 5)
+                        Text("≤ \(Int(settings.lowDiskAlertThresholdGB)) GB")
+                            .monospacedDigit()
+                            .frame(width: 68, alignment: .trailing)
+                    }
+                }
             }
         }
         .formStyle(.grouped)

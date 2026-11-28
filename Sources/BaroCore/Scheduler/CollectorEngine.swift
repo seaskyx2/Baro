@@ -4,6 +4,8 @@ public struct MenuBarRenderData: Sendable, Equatable {
     public var cpuPercent: Double
     public var memoryPercent: Double
     public var memoryPressure: MemoryPressureLevel
+    public var diskFreeBytes: UInt64?
+    public var diskUsedPercent: Double?
     public var uploadBytesPerSec: Double
     public var downloadBytesPerSec: Double
     public var temperatureCelsius: Double?
@@ -17,6 +19,8 @@ public struct MenuBarRenderData: Sendable, Equatable {
         cpuPercent: Double,
         memoryPercent: Double,
         memoryPressure: MemoryPressureLevel,
+        diskFreeBytes: UInt64? = nil,
+        diskUsedPercent: Double? = nil,
         uploadBytesPerSec: Double,
         downloadBytesPerSec: Double,
         temperatureCelsius: Double?,
@@ -29,6 +33,8 @@ public struct MenuBarRenderData: Sendable, Equatable {
         self.cpuPercent = cpuPercent
         self.memoryPercent = memoryPercent
         self.memoryPressure = memoryPressure
+        self.diskFreeBytes = diskFreeBytes
+        self.diskUsedPercent = diskUsedPercent
         self.uploadBytesPerSec = uploadBytesPerSec
         self.downloadBytesPerSec = downloadBytesPerSec
         self.temperatureCelsius = temperatureCelsius
@@ -43,6 +49,8 @@ public struct MenuBarRenderData: Sendable, Equatable {
         cpuPercent: 0,
         memoryPercent: 0,
         memoryPressure: .normal,
+        diskFreeBytes: nil,
+        diskUsedPercent: nil,
         uploadBytesPerSec: 0,
         downloadBytesPerSec: 0,
         temperatureCelsius: nil,
@@ -69,6 +77,8 @@ public final class CollectorEngine: @unchecked Sendable {
     private let throttleLock = NSLock()
     private var lastDiskSampleAt: Date?
     private var cachedDiskSnapshot: DiskSnapshot = .empty
+    private var lastColdVolumeSampleAt: Date?
+    private var cachedColdVolumeSnapshot: DiskSnapshot = .empty
     private var lastBatterySampleAt: Date?
     private var cachedBatterySnapshot: BatteryPowerSnapshot = .empty
     private var lastSleepSampleAt: Date?
@@ -89,6 +99,7 @@ public final class CollectorEngine: @unchecked Sendable {
 
         throttleLock.lock()
         lastDiskSampleAt = nil
+        lastColdVolumeSampleAt = nil
         lastBatterySampleAt = nil
         lastSleepSampleAt = nil
         lastProcessSampleAt = nil
@@ -108,6 +119,7 @@ public final class CollectorEngine: @unchecked Sendable {
         previous: SystemSnapshot,
         needCPU: Bool,
         needMemory: Bool,
+        needDisk: Bool = false,
         needNetwork: Bool,
         needThermal: Bool,
         needPower: Bool,
@@ -132,6 +144,9 @@ public final class CollectorEngine: @unchecked Sendable {
         }
         if needMemory {
             next.memory = memory.sample()
+        }
+        if needDisk {
+            next.disk = cachedOrFreshColdVolumes(minInterval: 20.0)
         }
         if needNetwork {
             next.network = network.sample()
@@ -219,6 +234,26 @@ public final class CollectorEngine: @unchecked Sendable {
         throttleLock.lock()
         lastDiskSampleAt = now
         cachedDiskSnapshot = fresh
+        cachedColdVolumeSnapshot = fresh
+        lastColdVolumeSampleAt = now
+        throttleLock.unlock()
+        return fresh
+    }
+
+    private func cachedOrFreshColdVolumes(minInterval: TimeInterval) -> DiskSnapshot {
+        let now = Date()
+        throttleLock.lock()
+        let last = lastColdVolumeSampleAt
+        let cached = cachedColdVolumeSnapshot
+        throttleLock.unlock()
+
+        if let last, now.timeIntervalSince(last) < minInterval, !cached.volumes.isEmpty {
+            return cached
+        }
+        let fresh = disk.sampleVolumesOnly()
+        throttleLock.lock()
+        lastColdVolumeSampleAt = now
+        cachedColdVolumeSnapshot = fresh
         throttleLock.unlock()
         return fresh
     }
