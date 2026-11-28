@@ -45,10 +45,14 @@ public final class SamplingCoordinator: ObservableObject {
     private let engine = CollectorEngine()
     private var timer: Timer?
     private var isSamplingInFlight = false
+    private var pendingImmediateSample = false
+    private var sampleGeneration: UInt64 = 0
+    private var isDisplayAsleep = false
     private var coldProcessSamplingActive = false
     private nonisolated(unsafe) var workspaceObservers: [NSObjectProtocol] = []
     private var settingsCancellables = Set<AnyCancellable>()
     private var lastAlertDates: [String: Date] = [:]
+    private var inFlightAlertKeys = Set<String>()
 
     public init(settings: BaroSettings = BaroSettings()) {
         self.settings = settings
@@ -74,6 +78,8 @@ public final class SamplingCoordinator: ObservableObject {
     }
 
     public func stop() {
+        sampleGeneration &+= 1
+        pendingImmediateSample = false
         timer?.invalidate()
         timer = nil
     }
@@ -85,6 +91,7 @@ public final class SamplingCoordinator: ObservableObject {
     public func setPanelOpen(_ open: Bool) {
         guard isPanelOpen != open else { return }
         isPanelOpen = open
+        sampleGeneration &+= 1
         coldProcessSamplingActive = false
         if open {
             snapshot = latestSnapshot
@@ -97,7 +104,7 @@ public final class SamplingCoordinator: ObservableObject {
     }
 
     /// 生成一份可导出的完整快照：面板展开时直接复用热态数据；
-    /// 面板收起时在现有引擎上间隔 1 秒连续采样两次，确保 CPU / 网速 / 进程等差分指标有效。
+    /// 面板收起时使用独立隔离的 CollectorEngine 采样两拍，避免并发踩踏后台主循环的差分基线。
     public func captureFreshSnapshot(
         completion: @escaping @MainActor @Sendable (SystemSnapshot, HealthSummary) -> Void
     ) {
@@ -105,12 +112,18 @@ public final class SamplingCoordinator: ObservableObject {
             completion(snapshot, healthSummary)
             return
         }
-        let capturedEngine = engine
         let lang = settings.resolvedLanguage
+        let baseSessionDown = latestSnapshot.network.sessionDownloadBytes
+        let baseSessionUp = latestSnapshot.network.sessionUploadBytes
+
         Task.detached(priority: .userInitiated) {
-            _ = capturedEngine.sampleHot(bypassThrottle: true)
+            let isolatedEngine = CollectorEngine()
+            _ = isolatedEngine.sampleHot(bypassThrottle: true)
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            let snap = capturedEngine.sampleHot(bypassThrottle: true)
+            var snap = isolatedEngine.sampleHot(bypassThrottle: true)
+            snap.network.sessionDownloadBytes += baseSessionDown
+            snap.network.sessionUploadBytes += baseSessionUp
+
             let health = HealthAnalyzer.analyze(
                 snapshot: snap,
                 topCPUApp: snap.topCPUApps.first,
@@ -153,49 +166,100 @@ public final class SamplingCoordinator: ObservableObject {
             .store(in: &settingsCancellables)
     }
 
-    private func registerSleepNotifications() {
-        let wsCenter = NSWorkspace.shared.notificationCenter
-        let sleepNames: [NSNotification.Name] = [
-            NSWorkspace.screensDidSleepNotification,
-            NSWorkspace.willSleepNotification
-        ]
-        let wakeNames: [NSNotification.Name] = [
-            NSWorkspace.screensDidWakeNotification,
-            NSWorkspace.didWakeNotification
-        ]
-
-        for name in sleepNames {
-            let obs = wsCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    self?.handleSleep()
-                }
-            }
-            workspaceObservers.append(obs)
-        }
-
-        for name in wakeNames {
-            let obs = wsCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    self?.handleWake()
-                }
-            }
-            workspaceObservers.append(obs)
-        }
+    private var hasAnyAlertEnabled: Bool {
+        settings.enableThermalAlert
+            || settings.enableMemoryAlert
+            || settings.enableLowBatteryAlert
+            || settings.enableLowDiskAlert
     }
 
-    private func handleSleep() {
+    private var shouldPauseAllSampling: Bool {
+        if isSleeping { return true }
+        if isDisplayAsleep && !hasAnyAlertEnabled { return true }
+        return false
+    }
+
+    private func registerSleepNotifications() {
+        let wsCenter = NSWorkspace.shared.notificationCenter
+
+        let sysSleepObs = wsCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleSystemSleep()
+            }
+        }
+        workspaceObservers.append(sysSleepObs)
+
+        let sysWakeObs = wsCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleSystemWake()
+            }
+        }
+        workspaceObservers.append(sysWakeObs)
+
+        let screenSleepObs = wsCenter.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleDisplaySleep()
+            }
+        }
+        workspaceObservers.append(screenSleepObs)
+
+        let screenWakeObs = wsCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleDisplayWake()
+            }
+        }
+        workspaceObservers.append(screenWakeObs)
+    }
+
+    private func handleSystemSleep() {
         isSleeping = true
+        sampleGeneration &+= 1
+        pendingImmediateSample = false
         timer?.invalidate()
         timer = nil
     }
 
-    private func handleWake() {
+    private func handleSystemWake() {
         isSleeping = false
+        isDisplayAsleep = false
+        sampleGeneration &+= 1
+        engine.resetAllBaselines()
+        scheduleNextCycle(immediate: true)
+    }
+
+    private func handleDisplaySleep() {
+        isDisplayAsleep = true
+        // 若用户开启了高温/内存/低磁盘等告警，息屏跑任务期间降频至 15 秒后台巡检；否则完全停表省电
+        scheduleNextCycle(immediate: false)
+    }
+
+    private func handleDisplayWake() {
+        isDisplayAsleep = false
+        sampleGeneration &+= 1
         engine.resetAllBaselines()
         scheduleNextCycle(immediate: true)
     }
 
     private func currentInterval() -> TimeInterval {
+        if isDisplayAsleep && hasAnyAlertEnabled {
+            return 15.0
+        }
         let base = isPanelOpen ? settings.hotInterval : settings.coldInterval
         if settings.adaptToLowPower && ProcessInfo.processInfo.isLowPowerModeEnabled {
             return max(base * 2.0, 3.0)
@@ -206,7 +270,7 @@ public final class SamplingCoordinator: ObservableObject {
     private func scheduleNextCycle(immediate: Bool) {
         timer?.invalidate()
         timer = nil
-        guard !isSleeping else { return }
+        guard !shouldPauseAllSampling else { return }
 
         if immediate {
             triggerSample()
@@ -224,38 +288,57 @@ public final class SamplingCoordinator: ObservableObject {
     }
 
     private func triggerSample() {
-        guard !isSleeping, !isSamplingInFlight else { return }
+        guard !shouldPauseAllSampling else { return }
+        if isSamplingInFlight {
+            pendingImmediateSample = true
+            return
+        }
         isSamplingInFlight = true
+        pendingImmediateSample = false
 
         let hot = isPanelOpen
         let style = settings.menuBarStyle
+        let capturedGen = sampleGeneration
 
-        let menuNeedCPU = settings.showMenuCPU || style == .sparkline || style == .miniBars || style == .breathingDot
-        let menuNeedMem = settings.showMenuMemory || style == .sparkline || style == .miniBars
+        // 按菜单栏当前预设实际绘制与健康评估所需维度精准裁剪冷态采样范围
+        let menuNeedCPU = settings.showMenuBarIcon
+            || settings.showMenuCPU
+            || style == .sparkline
+            || style == .miniBars
+            || style == .breathingDot
+        let menuNeedMem = settings.showMenuMemory
+            || style == .sparkline
+            || style == .miniBars
+            || style == .breathingDot
+        let menuNeedDisk = settings.showMenuDisk || style == .breathingDot
+        let menuNeedNet = settings.showMenuNetwork && style != .breathingDot
+        let menuNeedTemp = (settings.showMenuTemperature && (style == .compactDualRow || style == .singleLine))
+            || style == .breathingDot
+        let menuNeedPower = settings.showMenuPower && (style == .compactDualRow || style == .singleLine)
 
-        let sampleCPU = hot ? (settings.showCPUCard || menuNeedCPU) : menuNeedCPU
+        let sampleCPU = hot ? (settings.showCPUCard || menuNeedCPU) : (!isDisplayAsleep && menuNeedCPU)
         let sampleMemory = hot
             ? (settings.showMemoryCard || menuNeedMem || settings.enableMemoryAlert)
-            : (menuNeedMem || settings.enableMemoryAlert)
+            : ((!isDisplayAsleep && menuNeedMem) || settings.enableMemoryAlert)
         let sampleDisk = hot
-            ? (settings.showDiskCard || settings.showMenuDisk || settings.enableLowDiskAlert)
-            : (settings.showMenuDisk || settings.enableLowDiskAlert)
+            ? (settings.showDiskCard || menuNeedDisk || settings.enableLowDiskAlert)
+            : ((!isDisplayAsleep && menuNeedDisk) || settings.enableLowDiskAlert)
         let sampleNetwork = hot
-            ? (settings.showNetworkCard || settings.showMenuNetwork)
-            : settings.showMenuNetwork
+            ? (settings.showNetworkCard || menuNeedNet)
+            : (!isDisplayAsleep && menuNeedNet)
         let sampleThermal = hot
-            ? (settings.showPowerGPUCard || settings.showCPUCard || settings.showMenuTemperature || settings.enableThermalAlert)
-            : (settings.showMenuTemperature || settings.enableThermalAlert)
+            ? (settings.showPowerGPUCard || settings.showCPUCard || menuNeedTemp || settings.enableThermalAlert)
+            : ((!isDisplayAsleep && menuNeedTemp) || settings.enableThermalAlert)
         let samplePower = hot
-            ? (settings.showPowerGPUCard || settings.showMenuPower)
-            : settings.showMenuPower
+            ? (settings.showPowerGPUCard || menuNeedPower)
+            : (!isDisplayAsleep && menuNeedPower)
         let sampleBattery = hot
             ? (settings.showBatteryPowerCard || settings.enableLowBatteryAlert)
             : settings.enableLowBatteryAlert
         let sampleProcs = hot && (settings.showTopAppsSection || style == .breathingDot)
 
-        // 「灵动圆环」仅在高压态时于冷态做节流进程采样
-        let needColdProcs = !hot && style == .breathingDot && latestHealthSummary.level == .elevated
+        // 「灵动圆环」仅在亮屏且高压态时于冷态做节流进程采样
+        let needColdProcs = !hot && !isDisplayAsleep && style == .breathingDot && latestHealthSummary.level == .elevated
         if !hot && !needColdProcs && coldProcessSamplingActive {
             engine.resetHotProcessThrottle()
         }
@@ -298,8 +381,14 @@ public final class SamplingCoordinator: ObservableObject {
 
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                self.applySnapshot(nextSnapshot, mask: mask, isHot: hot)
                 self.isSamplingInFlight = false
+                if capturedGen == self.sampleGeneration {
+                    self.applySnapshot(nextSnapshot, mask: mask, isHot: hot)
+                }
+                if self.pendingImmediateSample && !self.shouldPauseAllSampling {
+                    self.pendingImmediateSample = false
+                    self.triggerSample()
+                }
             }
         }
     }
@@ -339,9 +428,11 @@ public final class SamplingCoordinator: ObservableObject {
             syncHistoryBuffersToPublished()
         }
 
-        onMenuBarUpdate?(makeMenuBarRenderData(from: next, health: summary))
+        if !isDisplayAsleep {
+            onMenuBarUpdate?(makeMenuBarRenderData(from: next, health: summary))
+        }
 
-        if isHot || settings.enableThermalAlert || settings.enableMemoryAlert || settings.enableLowBatteryAlert || settings.enableLowDiskAlert {
+        if isHot || hasAnyAlertEnabled {
             evaluateAlertsIfEnabled(next)
         }
     }
@@ -416,7 +507,12 @@ public final class SamplingCoordinator: ObservableObject {
         if settings.enableLowDiskAlert,
            let vol = snap.disk.primaryVolume,
            vol.totalBytes > 0 {
-            let thresholdBytes = UInt64(max(1.0, settings.lowDiskAlertThresholdGB) * 1_000_000_000.0)
+            let safeThresholdGB = BaroSettings.sanitizedDouble(
+                settings.lowDiskAlertThresholdGB,
+                default: 20.0,
+                range: 1.0...2_000.0
+            )
+            let thresholdBytes = UInt64(safeThresholdGB * 1_000_000_000.0)
             if vol.availableBytes <= thresholdBytes {
                 let freeStr = ByteFormatter.diskSize(vol.availableBytes)
                 sendNotificationIfNeeded(
@@ -432,29 +528,54 @@ public final class SamplingCoordinator: ObservableObject {
         }
     }
 
+    /// 命令行裸进程（如 `swift run` 或 `xctest`）无 `.app` Bundle 时访问 `UNUserNotificationCenter.current()` 会抛出 ObjC 异常，需先守卫
+    nonisolated public static var canUseUserNotifications: Bool {
+        guard Bundle.main.bundleIdentifier != nil else { return false }
+        return Bundle.main.bundleURL.pathExtension.lowercased() == "app"
+    }
+
     private func sendNotificationIfNeeded(key: String, title: String, body: String) {
+        guard Self.canUseUserNotifications else { return }
         let now = Date()
         if let last = lastAlertDates[key], now.timeIntervalSince(last) < 600 {
             return
         }
-        lastAlertDates[key] = now
+        guard !inFlightAlertKeys.contains(key) else { return }
+        inFlightAlertKeys.insert(key)
 
-        UNUserNotificationCenter.current().getNotificationSettings { settings in
-            guard settings.authorizationStatus == .authorized else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] notifSettings in
+            let status = notifSettings.authorizationStatus
+            guard status == .authorized || status == .provisional else {
+                Task { @MainActor [weak self] in
+                    self?.inFlightAlertKeys.remove(key)
+                }
+                return
+            }
+
+            let dispatchDate = Date()
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
             content.sound = .default
             let request = UNNotificationRequest(
-                identifier: "baro.alert.\(key).\(Int(now.timeIntervalSince1970))",
+                identifier: "baro.alert.\(key).\(Int(dispatchDate.timeIntervalSince1970))",
                 content: content,
                 trigger: nil
             )
-            UNUserNotificationCenter.current().add(request)
+            UNUserNotificationCenter.current().add(request) { [weak self] error in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.inFlightAlertKeys.remove(key)
+                    if error == nil {
+                        self.lastAlertDates[key] = dispatchDate
+                    }
+                }
+            }
         }
     }
 
     public static func requestNotificationPermissionIfNeeded() {
+        guard canUseUserNotifications else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 }

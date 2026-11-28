@@ -59,7 +59,30 @@ static bool try_read_smart_from_service(io_service_t service, BaroNVMeSmartReadi
     return success;
 }
 
-static bool scan_matching_dict(CFMutableDictionaryRef matching, BaroNVMeSmartReading *out) {
+static bool is_internal_nvme_service(io_service_t service) {
+    CFTypeRef prop = IORegistryEntrySearchCFProperty(
+        service,
+        kIOServicePlane,
+        CFSTR("Protocol Characteristics"),
+        kCFAllocatorDefault,
+        kIORegistryIterateRecursively | kIORegistryIterateParents
+    );
+    if (prop == NULL) {
+        return false;
+    }
+
+    bool isInternal = false;
+    if (CFGetTypeID(prop) == CFDictionaryGetTypeID()) {
+        CFStringRef loc = CFDictionaryGetValue((CFDictionaryRef)prop, CFSTR("Physical Interconnect Location"));
+        if (loc != NULL && CFGetTypeID(loc) == CFStringGetTypeID()) {
+            isInternal = (CFStringCompare(loc, CFSTR("Internal"), 0) == kCFCompareEqualTo);
+        }
+    }
+    CFRelease(prop);
+    return isInternal;
+}
+
+static bool scan_matching_dict(CFMutableDictionaryRef matching, bool requireInternal, BaroNVMeSmartReading *out) {
     if (matching == NULL) {
         return false;
     }
@@ -72,8 +95,10 @@ static bool scan_matching_dict(CFMutableDictionaryRef matching, BaroNVMeSmartRea
     bool found = false;
     io_service_t service = IOIteratorNext(iterator);
     while (service != 0) {
-        if (!found && try_read_smart_from_service(service, out)) {
-            found = true;
+        if (!found && (!requireInternal || is_internal_nvme_service(service))) {
+            if (try_read_smart_from_service(service, out)) {
+                found = true;
+            }
         }
         IOObjectRelease(service);
         if (found) {
@@ -92,17 +117,21 @@ bool baro_read_nvme_smart(BaroNVMeSmartReading *outReading) {
     }
     memset(outReading, 0, sizeof(*outReading));
 
-    if (scan_matching_dict(IOServiceMatching("IONVMeBlockStorageDevice"), outReading)) {
+    // 优先匹配 Apple Silicon 原生内置嵌入式 NVMe 与内部互连控制器，避免被雷电外置盘抢先覆盖
+    if (scan_matching_dict(IOServiceMatching("IOEmbeddedNVMeBlockDevice"), false, outReading)) {
         return true;
     }
-    if (scan_matching_dict(IOServiceMatching("IOEmbeddedNVMeBlockDevice"), outReading)) {
+    if (scan_matching_dict(IOServiceMatching("IONVMeBlockStorageDevice"), true, outReading)) {
+        return true;
+    }
+    if (scan_matching_dict(IOServiceMatching("IONVMeBlockStorageDevice"), false, outReading)) {
         return true;
     }
 
     CFMutableDictionaryRef propMatch = IOServiceMatching("IOService");
     if (propMatch != NULL) {
         CFDictionarySetValue(propMatch, CFSTR(kIOPropertyNVMeSMARTCapableKey), kCFBooleanTrue);
-        if (scan_matching_dict(propMatch, outReading)) {
+        if (scan_matching_dict(propMatch, false, outReading)) {
             return true;
         }
     }

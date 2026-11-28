@@ -2,6 +2,9 @@ import Darwin
 import Foundation
 
 public enum HostInfoReader {
+    /// 进程级静态复用的 Mach Host Port，避免每次采样重复调用 `mach_host_self()` 泄漏 Send Rights
+    public static let machHostPort: mach_port_t = mach_host_self()
+
     public static func readStaticInfo() -> HostStaticInfo {
         let chipName = sysctlString("machdep.cpu.brand_string") ?? "Apple Silicon"
         let modelIdentifier = sysctlString("hw.model") ?? "Mac"

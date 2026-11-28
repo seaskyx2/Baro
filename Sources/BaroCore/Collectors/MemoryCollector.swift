@@ -8,7 +8,7 @@ public final class MemoryCollector: @unchecked Sendable {
     public init() {
         self.totalMemoryBytes = HostInfoReader.sysctlUInt64("hw.memsize") ?? ProcessInfo.processInfo.physicalMemory
         var pageSizeValue: vm_size_t = 0
-        host_page_size(mach_host_self(), &pageSizeValue)
+        host_page_size(HostInfoReader.machHostPort, &pageSizeValue)
         self.pageSize = UInt64(pageSizeValue > 0 ? pageSizeValue : 16_384)
     }
 
@@ -18,7 +18,7 @@ public final class MemoryCollector: @unchecked Sendable {
 
         let kr = withUnsafeMutablePointer(to: &vmStats) { pointer -> kern_return_t in
             pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
-                host_statistics64(mach_host_self(), HOST_VM_INFO64, intPtr, &count)
+                host_statistics64(HostInfoReader.machHostPort, HOST_VM_INFO64, intPtr, &count)
             }
         }
 

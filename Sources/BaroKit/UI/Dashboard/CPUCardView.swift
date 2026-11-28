@@ -91,26 +91,33 @@ public struct CPUCardView: View {
             Text(label)
                 .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 34, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: 44, alignment: .leading)
 
             ThinProgressBar(ratio: percent / 100.0, tint: tint, height: 4.5)
 
             Text("\(Int(percent.rounded()))%")
                 .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                 .foregroundStyle(.primary)
-                .frame(width: 26, alignment: .trailing)
+                .lineLimit(1)
+                .frame(width: 30, alignment: .trailing)
 
             if !rightText.isEmpty {
                 Text(rightText)
                     .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                     .frame(width: 32, alignment: .trailing)
             }
         }
     }
 
     private var perCoreDrawer: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        let coreCount = cpu.perCoreLoads.count
+        let barSpacing: CGFloat = coreCount > 16 ? 1.5 : 3.0
+        let labelFontSize: CGFloat = coreCount > 20 ? 7.0 : 8.0
+
+        return VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(BaroL10n.t("全核心实时负载（\(cpu.totalCoreCount) 核）", "Per-Core Load (\(cpu.totalCoreCount) cores)", lang: lang))
                     .font(.system(size: 9.5, weight: .semibold))
@@ -121,7 +128,7 @@ public struct CPUCardView: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack(alignment: .bottom, spacing: 3) {
+            HStack(alignment: .bottom, spacing: barSpacing) {
                 ForEach(cpu.perCoreLoads) { core in
                     let barColor = core.kind == .performance ? BaroPalette.pCore : BaroPalette.eCore
                     VStack(spacing: 2) {
@@ -135,7 +142,8 @@ public struct CPUCardView: View {
                                 .animation(.easeOut(duration: 0.25), value: core.usagePercent)
                         }
                         Text(core.kind == .performance ? "P" : (core.kind == .efficiency ? "E" : "\(core.id)"))
-                            .font(.system(size: 8, weight: .medium))
+                            .font(.system(size: labelFontSize, weight: .medium))
+                            .lineLimit(1)
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)

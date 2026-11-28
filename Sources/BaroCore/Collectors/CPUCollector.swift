@@ -3,11 +3,18 @@ import Foundation
 import IOKit
 
 public final class CPUCollector: @unchecked Sendable {
-    private struct CoreTicks {
-        let user: UInt64
-        let system: UInt64
-        let idle: UInt64
-        let nice: UInt64
+    public struct CoreTicks: Sendable, Equatable {
+        public let user: UInt32
+        public let system: UInt32
+        public let idle: UInt32
+        public let nice: UInt32
+
+        public init(user: UInt32, system: UInt32, idle: UInt32, nice: UInt32) {
+            self.user = user
+            self.system = system
+            self.idle = idle
+            self.nice = nice
+        }
     }
 
     private let lock = NSLock()
@@ -28,6 +35,19 @@ public final class CPUCollector: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// 32 位无符号 CPU tick 差分（兼容跨 `2^31` 符号位翻转与 `2^32` 计数器自然回绕，杜绝有符号扩展溢出）
+    public static func computeCoreTickDelta(
+        current: CoreTicks,
+        previous: CoreTicks
+    ) -> (user: UInt64, system: UInt64, idle: UInt64, nice: UInt64) {
+        (
+            user: UInt64(current.user &- previous.user),
+            system: UInt64(current.system &- previous.system),
+            idle: UInt64(current.idle &- previous.idle),
+            nice: UInt64(current.nice &- previous.nice)
+        )
+    }
+
     public func sample() -> CPUSnapshot {
         lock.lock()
         defer { lock.unlock() }
@@ -37,7 +57,7 @@ public final class CPUCollector: @unchecked Sendable {
         var numCPUInfo: mach_msg_type_number_t = 0
 
         let result = host_processor_info(
-            mach_host_self(),
+            HostInfoReader.machHostPort,
             PROCESSOR_CPU_LOAD_INFO,
             &numCPUs,
             &cpuInfo,
@@ -54,15 +74,20 @@ public final class CPUCollector: @unchecked Sendable {
         }
 
         let coreCount = Int(numCPUs)
+        let stridePerCore = Int(CPU_STATE_MAX)
+        guard coreCount > 0, Int(numCPUInfo) >= coreCount * stridePerCore else {
+            return .empty
+        }
+
         var currentTicks: [CoreTicks] = []
         currentTicks.reserveCapacity(coreCount)
 
         for i in 0..<coreCount {
-            let base = i * Int(CPU_STATE_MAX)
-            let user = UInt64(bitPattern: Int64(info[base + Int(CPU_STATE_USER)]))
-            let system = UInt64(bitPattern: Int64(info[base + Int(CPU_STATE_SYSTEM)]))
-            let idle = UInt64(bitPattern: Int64(info[base + Int(CPU_STATE_IDLE)]))
-            let nice = UInt64(bitPattern: Int64(info[base + Int(CPU_STATE_NICE)]))
+            let base = i * stridePerCore
+            let user = UInt32(bitPattern: info[base + Int(CPU_STATE_USER)])
+            let system = UInt32(bitPattern: info[base + Int(CPU_STATE_SYSTEM)])
+            let idle = UInt32(bitPattern: info[base + Int(CPU_STATE_IDLE)])
+            let nice = UInt32(bitPattern: info[base + Int(CPU_STATE_NICE)])
             currentTicks.append(CoreTicks(user: user, system: system, idle: idle, nice: nice))
         }
 
@@ -102,13 +127,11 @@ public final class CPUCollector: @unchecked Sendable {
         perCoreLoads.reserveCapacity(coreCount)
 
         for i in 0..<coreCount {
-            let prev = previousTicks[i]
-            let curr = currentTicks[i]
-
-            let dUser = curr.user >= prev.user ? curr.user - prev.user : 0
-            let dSys = curr.system >= prev.system ? curr.system - prev.system : 0
-            let dIdle = curr.idle >= prev.idle ? curr.idle - prev.idle : 0
-            let dNice = curr.nice >= prev.nice ? curr.nice - prev.nice : 0
+            let delta = Self.computeCoreTickDelta(current: currentTicks[i], previous: previousTicks[i])
+            let dUser = delta.user
+            let dSys = delta.system
+            let dIdle = delta.idle
+            let dNice = delta.nice
 
             let active = dUser + dSys + dNice
             let total = active + dIdle

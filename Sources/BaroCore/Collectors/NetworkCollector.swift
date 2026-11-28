@@ -2,13 +2,18 @@ import Darwin
 import Foundation
 
 public final class NetworkCollector: @unchecked Sendable {
-    private struct InterfaceTotals {
-        let inBytes: UInt64
-        let outBytes: UInt64
+    public struct InterfaceTotals: Sendable, Equatable {
+        public let inBytes: UInt64
+        public let outBytes: UInt64
+
+        public init(inBytes: UInt64, outBytes: UInt64) {
+            self.inBytes = inBytes
+            self.outBytes = outBytes
+        }
     }
 
     private let lock = NSLock()
-    private var previousSample: (totals: [String: InterfaceTotals], timestamp: Date)?
+    private var previousSample: (totals: [String: InterfaceTotals], timestamp: Date, is64Bit: Bool)?
     private var sessionDownloadBytes: UInt64 = 0
     private var sessionUploadBytes: UInt64 = 0
 
@@ -24,13 +29,37 @@ public final class NetworkCollector: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// 严格同位宽计数器差分：拒绝在 64 位 `sysctl` 与 32 位 `getifaddrs` 之间跨位宽相减，杜绝 `N × 4 GiB/s` 假尖峰
+    public static func computeSafeTrafficDelta(
+        currentTotals: [String: InterfaceTotals],
+        currentIs64Bit: Bool,
+        previousTotals: [String: InterfaceTotals],
+        previousIs64Bit: Bool
+    ) -> (deltaIn: UInt64, deltaOut: UInt64)? {
+        guard currentIs64Bit == previousIs64Bit else { return nil }
+        var totalDeltaIn: UInt64 = 0
+        var totalDeltaOut: UInt64 = 0
+
+        for (iface, curr) in currentTotals {
+            guard let old = previousTotals[iface] else { continue }
+            if curr.inBytes >= old.inBytes {
+                totalDeltaIn += curr.inBytes - old.inBytes
+            }
+            if curr.outBytes >= old.outBytes {
+                totalDeltaOut += curr.outBytes - old.outBytes
+            }
+        }
+        return (totalDeltaIn, totalDeltaOut)
+    }
+
     public func sample() -> NetworkSnapshot {
         lock.lock()
         defer { lock.unlock() }
 
         let (fallbackTotals, ipv4Map, interfaceOrder) = readIPv4AndFallbackTotals()
         let sysctlTotals = read64BitInterfaceTotals()
-        let currentTotals = sysctlTotals.isEmpty ? fallbackTotals : sysctlTotals.filter { isPhysicalInterface($0.key) }
+        let has64Bit = !sysctlTotals.isEmpty
+        let currentTotals = has64Bit ? sysctlTotals.filter { Self.isPhysicalInterface($0.key) } : fallbackTotals
 
         let now = Date()
         var downloadSpeed = 0.0
@@ -38,28 +67,21 @@ public final class NetworkCollector: @unchecked Sendable {
 
         if let prev = previousSample {
             let dt = now.timeIntervalSince(prev.timestamp)
-            if dt > 0.05 && dt < 30.0 {
-                var totalDeltaIn: UInt64 = 0
-                var totalDeltaOut: UInt64 = 0
-
-                for (iface, curr) in currentTotals {
-                    guard let old = prev.totals[iface] else { continue }
-                    if curr.inBytes >= old.inBytes {
-                        totalDeltaIn += curr.inBytes - old.inBytes
-                    }
-                    if curr.outBytes >= old.outBytes {
-                        totalDeltaOut += curr.outBytes - old.outBytes
-                    }
-                }
-
-                sessionDownloadBytes += totalDeltaIn
-                sessionUploadBytes += totalDeltaOut
-                downloadSpeed = Double(totalDeltaIn) / dt
-                uploadSpeed = Double(totalDeltaOut) / dt
+            if dt > 0.05 && dt < 30.0,
+               let delta = Self.computeSafeTrafficDelta(
+                   currentTotals: currentTotals,
+                   currentIs64Bit: has64Bit,
+                   previousTotals: prev.totals,
+                   previousIs64Bit: prev.is64Bit
+               ) {
+                sessionDownloadBytes += delta.deltaIn
+                sessionUploadBytes += delta.deltaOut
+                downloadSpeed = Double(delta.deltaIn) / dt
+                uploadSpeed = Double(delta.deltaOut) / dt
             }
         }
 
-        previousSample = (currentTotals, now)
+        previousSample = (currentTotals, now, has64Bit)
 
         let primaryInterface = interfaceOrder.first(where: { ipv4Map[$0] != nil })
             ?? interfaceOrder.first(where: { $0.hasPrefix("en") })
@@ -79,62 +101,73 @@ public final class NetworkCollector: @unchecked Sendable {
         )
     }
 
-    /// 使用 sysctl NET_RT_IFLIST2 读取真 64 位 if_data64 字节计数器，彻底解决 4GB 回绕问题
+    /// 使用 sysctl NET_RT_IFLIST2 读取真 64 位 if_data64 字节计数器（带缓冲余量与 ENOMEM 重试）
     private func read64BitInterfaceTotals() -> [String: InterfaceTotals] {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
-        var len = 0
-        guard sysctl(&mib, 6, nil, &len, nil, 0) == 0, len > 0 else {
+        var estimatedLen = 0
+        guard sysctl(&mib, 6, nil, &estimatedLen, nil, 0) == 0, estimatedLen > 0 else {
             return [:]
         }
 
-        var buffer = [UInt8](repeating: 0, count: len)
-        guard sysctl(&mib, 6, &buffer, &len, nil, 0) == 0, len > 0 else {
-            return [:]
+        var allocLen = estimatedLen + max(4_096, estimatedLen / 4)
+        for _ in 0..<3 {
+            var buffer = [UInt8](repeating: 0, count: allocLen)
+            var actualLen = allocLen
+            if sysctl(&mib, 6, &buffer, &actualLen, nil, 0) == 0, actualLen > 0 {
+                return buffer.withUnsafeBytes { rawBuf in
+                    Self.parseInterfaceList2Buffer(rawBuf, validLen: min(actualLen, buffer.count))
+                }
+            }
+            guard errno == ENOMEM else {
+                return [:]
+            }
+            allocLen *= 2
         }
+        return [:]
+    }
 
+    /// 安全解析 NET_RT_IFLIST2 路由消息流：先按 4 字节通用头检查 msglen 与 msgtype，杜绝短消息跨界读取与未对齐访问
+    public static func parseInterfaceList2Buffer(_ rawBuf: UnsafeRawBufferPointer, validLen: Int) -> [String: InterfaceTotals] {
         var result: [String: InterfaceTotals] = [:]
-        buffer.withUnsafeBytes { rawBuf in
-            var offset = 0
-            let headerSize = MemoryLayout<if_msghdr2>.stride
-            let baseAddr = rawBuf.baseAddress!
+        let safeLen = min(validLen, rawBuf.count)
+        let ifMsgSize = MemoryLayout<if_msghdr2>.size
+        let sdlDataOffset = MemoryLayout<sockaddr_dl>.offset(of: \sockaddr_dl.sdl_data) ?? 8
 
-            while offset + headerSize <= len {
-                let msgPtr = baseAddr.advanced(by: offset).assumingMemoryBound(to: if_msghdr2.self)
-                let msg = msgPtr.pointee
-                let msgLen = Int(msg.ifm_msglen)
-                guard msgLen > 0, offset + msgLen <= len else { break }
+        var offset = 0
+        while offset + 4 <= safeLen {
+            let rawMsgLen = rawBuf.loadUnaligned(fromByteOffset: offset, as: UInt16.self)
+            let msgLen = Int(rawMsgLen)
+            guard msgLen >= 4, offset + msgLen <= safeLen else { break }
 
-                if Int32(msg.ifm_type) == RTM_IFINFO2 {
-                    let flags = msg.ifm_flags
-                    let isUp = (flags & IFF_UP) != 0
-                    let isRunning = (flags & IFF_RUNNING) != 0
-                    let isLoopback = (flags & IFF_LOOPBACK) != 0
+            let msgType = Int32(rawBuf[offset + 3])
+            if msgType == RTM_IFINFO2 && msgLen >= ifMsgSize {
+                let msg = rawBuf.loadUnaligned(fromByteOffset: offset, as: if_msghdr2.self)
+                let flags = msg.ifm_flags
+                let isUp = (flags & IFF_UP) != 0
+                let isRunning = (flags & IFF_RUNNING) != 0
+                let isLoopback = (flags & IFF_LOOPBACK) != 0
 
-                    if isUp, isRunning, !isLoopback, (msg.ifm_addrs & RTA_IFP) != 0 {
-                        let sdlOffset = offset + headerSize
-                        if sdlOffset + MemoryLayout<sockaddr_dl>.stride <= offset + msgLen {
-                            let sdlPtr = baseAddr.advanced(by: sdlOffset).assumingMemoryBound(to: sockaddr_dl.self)
-                            let sdl = sdlPtr.pointee
-                            if Int32(sdl.sdl_family) == AF_LINK, sdl.sdl_nlen > 0 {
-                                let nameLen = Int(sdl.sdl_nlen)
-                                let nameStart = sdlOffset + MemoryLayout<sockaddr_dl>.offset(of: \sockaddr_dl.sdl_data)!
-                                if nameStart + nameLen <= offset + msgLen {
-                                    let nameBytes = rawBuf[nameStart..<(nameStart + nameLen)]
-                                    let name = String(decoding: nameBytes, as: UTF8.self)
-                                    if isPhysicalInterface(name) {
-                                        result[name] = InterfaceTotals(
-                                            inBytes: msg.ifm_data.ifi_ibytes,
-                                            outBytes: msg.ifm_data.ifi_obytes
-                                        )
-                                    }
-                                }
+                if isUp, isRunning, !isLoopback, (msg.ifm_addrs & RTA_IFP) != 0 {
+                    let sdlOffset = offset + ifMsgSize
+                    if sdlOffset + sdlDataOffset <= offset + msgLen {
+                        let sdlFamily = Int32(rawBuf[sdlOffset + 1])
+                        let nameLen = Int(rawBuf[sdlOffset + 5])
+                        let nameStart = sdlOffset + sdlDataOffset
+                        if sdlFamily == AF_LINK, nameLen > 0, nameStart + nameLen <= offset + msgLen {
+                            let nameBytes = rawBuf[nameStart..<(nameStart + nameLen)]
+                            let name = String(decoding: nameBytes, as: UTF8.self)
+                            if isPhysicalInterface(name) {
+                                result[name] = InterfaceTotals(
+                                    inBytes: msg.ifm_data.ifi_ibytes,
+                                    outBytes: msg.ifm_data.ifi_obytes
+                                )
                             }
                         }
                     }
                 }
-
-                offset += msgLen
             }
+
+            offset += msgLen
         }
         return result
     }
@@ -159,7 +192,7 @@ public final class NetworkCollector: @unchecked Sendable {
 
             if isUp, isRunning, !isLoopback, let namePtr = current.pointee.ifa_name {
                 let name = String(cString: namePtr)
-                if isPhysicalInterface(name), let addr = current.pointee.ifa_addr {
+                if Self.isPhysicalInterface(name), let addr = current.pointee.ifa_addr {
                     let family = Int32(addr.pointee.sa_family)
                     if family == AF_LINK, let dataPtr = current.pointee.ifa_data {
                         let ifData = dataPtr.assumingMemoryBound(to: if_data.self).pointee
@@ -189,7 +222,7 @@ public final class NetworkCollector: @unchecked Sendable {
         return (fallbackTotals, ipv4Map, interfaceOrder)
     }
 
-    private func isPhysicalInterface(_ name: String) -> Bool {
+    public static func isPhysicalInterface(_ name: String) -> Bool {
         for prefix in Self.excludedPrefixes where name.hasPrefix(prefix) {
             return false
         }

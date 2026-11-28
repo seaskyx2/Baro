@@ -24,6 +24,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var lastMenuBarSignature: String = ""
     private var dashboardPanel: BaroFloatingPanel?
     private var dashboardHostingController: NSHostingController<DashboardPopoverView>?
+    private var panelTopAnchorY: CGFloat?
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
 
@@ -86,12 +87,35 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     // MARK: - Single-Instance Guard
 
+    /// 确定性的单实例竞争裁决：优先保留更早启动的实例；同毫秒并发启动时按较小 PID 唯一胜出，杜绝双实例互杀
+    nonisolated public static func shouldTerminateAsDuplicate(
+        currentPID: pid_t,
+        currentLaunchDate: Date?,
+        peers: [(pid: pid_t, launchDate: Date?, isTerminated: Bool)]
+    ) -> Bool {
+        for peer in peers {
+            if peer.pid == currentPID || peer.isTerminated {
+                continue
+            }
+            if let myLaunch = currentLaunchDate, let peerLaunch = peer.launchDate, abs(myLaunch.timeIntervalSince(peerLaunch)) > 0.05 {
+                if peerLaunch < myLaunch {
+                    return true
+                }
+            } else if peer.pid < currentPID {
+                return true
+            }
+        }
+        return false
+    }
+
     private func terminateIfDuplicateInstance() -> Bool {
         guard let bundleID = Bundle.main.bundleIdentifier else { return false }
         let currentPID = ProcessInfo.processInfo.processIdentifier
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
-        let hasOther = running.contains { $0.processIdentifier != currentPID && !$0.isTerminated }
-        if hasOther {
+        let currentLaunch = NSRunningApplication.current.launchDate
+        let peerInfos = running.map { (pid: $0.processIdentifier, launchDate: $0.launchDate, isTerminated: $0.isTerminated) }
+
+        if Self.shouldTerminateAsDuplicate(currentPID: currentPID, currentLaunchDate: currentLaunch, peers: peerInfos) {
             DistributedNotificationCenter.default().postNotificationName(
                 Self.activateNotificationName,
                 object: nil,
@@ -181,7 +205,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     @objc private func handleStatusItemClick(_ sender: Any?) {
-        if let event = NSApp.currentEvent, event.type == .rightMouseUp {
+        if let event = NSApp.currentEvent,
+           event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
             showContextMenu()
             return
         }
@@ -421,26 +446,35 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         idleReleaseTimer = timer
     }
 
-    private func positionPanelBelowStatusItem(_ panel: NSPanel) {
-        guard let button = statusItem.button,
+    private func statusButtonAnchorGeometry() -> (topY: CGFloat, midX: CGFloat, screen: NSScreen?)? {
+        guard let button = statusItem?.button,
               let buttonWindow = button.window else {
-            return
+            return nil
         }
-
         let buttonFrameInWindow = button.convert(button.bounds, to: nil)
         let buttonScreenRect = buttonWindow.convertToScreen(buttonFrameInWindow)
         let targetScreen = buttonWindow.screen ?? NSScreen.main ?? NSScreen.screens.first
+        return (topY: buttonScreenRect.minY - 6, midX: buttonScreenRect.midX, screen: targetScreen)
+    }
 
-        let fittingSize = dashboardHostingController?.view.fittingSize ?? NSScreen.main?.frame.size ?? CGSize(width: 364, height: 480)
+    private func positionPanelBelowStatusItem(_ panel: NSPanel) {
+        guard let anchor = statusButtonAnchorGeometry() else { return }
+        self.panelTopAnchorY = anchor.topY
+
+        dashboardHostingController?.view.layoutSubtreeIfNeeded()
+        let fittingSize = dashboardHostingController?.view.fittingSize ?? CGSize(width: 364, height: 480)
         let width: CGFloat = 364
-        let height: CGFloat = max(240, ceil(fittingSize.height))
+        let visible = anchor.screen?.visibleFrame
+        let maxHeight = max(260, (visible?.height ?? 860) - 16)
+        let height = min(maxHeight, max(240, ceil(fittingSize.height)))
 
-        var x = buttonScreenRect.midX - width / 2.0
-        if let visible = targetScreen?.visibleFrame {
+        var x = anchor.midX - width / 2.0
+        if let visible {
             x = min(x, visible.maxX - width - 8)
             x = max(x, visible.minX + 8)
         }
-        let y = buttonScreenRect.minY - height - 6
+        let minAllowedY = (visible?.minY ?? 0) + 6
+        let y = max(minAllowedY, anchor.topY - height)
 
         panel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
     }
@@ -449,11 +483,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         guard let panel = dashboardPanel, panel.isVisible,
               let hosting = dashboardHostingController else { return }
         hosting.view.layoutSubtreeIfNeeded()
-        let newHeight = max(240, ceil(hosting.view.fittingSize.height))
+
+        let anchor = statusButtonAnchorGeometry()
+        let topY = anchor?.topY ?? panelTopAnchorY ?? panel.frame.maxY
+        panelTopAnchorY = topY
+
+        let visible = (anchor?.screen ?? panel.screen ?? NSScreen.main)?.visibleFrame
+        let maxHeight = max(260, (visible?.height ?? 860) - 16)
+        let newHeight = min(maxHeight, max(240, ceil(hosting.view.fittingSize.height)))
+
         var frame = panel.frame
-        let topY = frame.maxY
+        let minAllowedY = (visible?.minY ?? 0) + 6
+        let newOriginY = max(minAllowedY, topY - newHeight)
+        guard abs(frame.size.height - newHeight) >= 0.5 || abs(frame.origin.y - newOriginY) >= 0.5 else {
+            return
+        }
         frame.size.height = newHeight
-        frame.origin.y = topY - newHeight
+        frame.origin.y = newOriginY
         panel.setFrame(frame, display: true, animate: false)
     }
 

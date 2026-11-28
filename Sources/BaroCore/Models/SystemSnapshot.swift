@@ -405,6 +405,7 @@ public struct BatteryPowerSnapshot: Sendable, Equatable {
 
 public struct AppleSiliconPowerSnapshot: Sendable, Equatable {
     public var isAvailable: Bool
+    public var isWarmingUp: Bool
     public var packageWatts: Double
     public var cpuWatts: Double
     public var gpuWatts: Double
@@ -414,6 +415,7 @@ public struct AppleSiliconPowerSnapshot: Sendable, Equatable {
 
     public static let empty = AppleSiliconPowerSnapshot(
         isAvailable: false,
+        isWarmingUp: false,
         packageWatts: 0,
         cpuWatts: 0,
         gpuWatts: 0,
@@ -424,6 +426,7 @@ public struct AppleSiliconPowerSnapshot: Sendable, Equatable {
 
     public init(
         isAvailable: Bool,
+        isWarmingUp: Bool = false,
         packageWatts: Double,
         cpuWatts: Double,
         gpuWatts: Double,
@@ -432,6 +435,7 @@ public struct AppleSiliconPowerSnapshot: Sendable, Equatable {
         gpuUsagePercent: Double
     ) {
         self.isAvailable = isAvailable
+        self.isWarmingUp = isWarmingUp
         self.packageWatts = packageWatts
         self.cpuWatts = cpuWatts
         self.gpuWatts = gpuWatts

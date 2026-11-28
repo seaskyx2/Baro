@@ -1,3 +1,4 @@
+import AppKit
 import BaroCore
 import SwiftUI
 
@@ -32,6 +33,7 @@ public struct DashboardPopoverView: View {
     @State private var expandedPower = false
     @State private var expandedDisk = false
     @State private var copiedSnapshot = false
+    @State private var naturalContentHeight: CGFloat = 420
 
     public init(
         coordinator: SamplingCoordinator,
@@ -67,8 +69,32 @@ public struct DashboardPopoverView: View {
         return list
     }
 
+    private var maxPanelContentHeight: CGFloat {
+        max(260, (NSScreen.main?.visibleFrame.height ?? 900) - 36)
+    }
+
     private func dashboardBody(lang: ResolvedLanguage) -> some View {
         let cards = activeCards
+
+        return Group {
+            if naturalContentHeight > maxPanelContentHeight {
+                ScrollView(.vertical, showsIndicators: false) {
+                    dashboardContentStack(cards: cards, lang: lang)
+                }
+                .frame(width: 364, height: maxPanelContentHeight)
+            } else {
+                dashboardContentStack(cards: cards, lang: lang)
+            }
+        }
+        .baroLiquidGlass(cornerRadius: 22)
+        .onChange(of: expandedCPU) { _, _ in onLayoutChanged() }
+        .onChange(of: expandedMemory) { _, _ in onLayoutChanged() }
+        .onChange(of: expandedPower) { _, _ in onLayoutChanged() }
+        .onChange(of: expandedDisk) { _, _ in onLayoutChanged() }
+        .onChange(of: cards.map(\.id)) { _, _ in onLayoutChanged() }
+    }
+
+    private func dashboardContentStack(cards: [CardSlot], lang: ResolvedLanguage) -> some View {
         let rowCount = (cards.count + 1) / 2
 
         return VStack(alignment: .leading, spacing: 8) {
@@ -104,12 +130,15 @@ public struct DashboardPopoverView: View {
         }
         .padding(12)
         .frame(width: 364)
-        .baroLiquidGlass(cornerRadius: 22)
-        .onChange(of: expandedCPU) { _, _ in onLayoutChanged() }
-        .onChange(of: expandedMemory) { _, _ in onLayoutChanged() }
-        .onChange(of: expandedPower) { _, _ in onLayoutChanged() }
-        .onChange(of: expandedDisk) { _, _ in onLayoutChanged() }
-        .onChange(of: cards.map(\.id)) { _, _ in onLayoutChanged() }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            ceil(proxy.size.height)
+        } action: { newHeight in
+            guard newHeight > 40 else { return }
+            if abs(naturalContentHeight - newHeight) >= 0.5 {
+                naturalContentHeight = newHeight
+                onLayoutChanged()
+            }
+        }
     }
 
     @ViewBuilder

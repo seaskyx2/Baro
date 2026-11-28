@@ -1,8 +1,10 @@
 import Darwin
 import Foundation
+import os
 
 /// 免 root 通过系统动态库 libIOReport 读取 Apple Silicon CPU/GPU/ANE/整机功耗与 GPU 利用率
 public final class AppleSiliconPowerCollector: @unchecked Sendable {
+    private static let logger = Logger(subsystem: "com.baro.monitor", category: "AppleSiliconPowerCollector")
     private typealias CopyChannelsInGroupFn = @convention(c) (CFString?, CFString?, UInt64, UInt64, UInt64) -> Unmanaged<CFDictionary>?
     private typealias MergeChannelsFn = @convention(c) (CFMutableDictionary, CFDictionary, CFTypeRef?) -> Void
     private typealias CreateSubscriptionFn = @convention(c) (
@@ -81,7 +83,8 @@ public final class AppleSiliconPowerCollector: @unchecked Sendable {
         guard let prev = previousSample else {
             previousSample = (currentSample, now)
             return AppleSiliconPowerSnapshot(
-                isAvailable: true,
+                isAvailable: false,
+                isWarmingUp: true,
                 packageWatts: 0,
                 cpuWatts: 0,
                 gpuWatts: 0,
@@ -97,7 +100,8 @@ public final class AppleSiliconPowerCollector: @unchecked Sendable {
         guard dt > 0.05 && dt < 30.0,
               let delta = createSamplesDelta(prev.dict, currentSample, nil)?.takeRetainedValue() else {
             return AppleSiliconPowerSnapshot(
-                isAvailable: true,
+                isAvailable: false,
+                isWarmingUp: true,
                 packageWatts: 0,
                 cpuWatts: 0,
                 gpuWatts: 0,
@@ -113,6 +117,7 @@ public final class AppleSiliconPowerCollector: @unchecked Sendable {
         var dramWatts = 0.0
         var packageWattsDirect: Double?
         var gpuUsagePercent = 0.0
+        var matchedPrimaryGPUChannel = false
 
         iterate(delta) { channel -> Int32 in
             let group = self.channelGetGroup?(channel)?.takeUnretainedValue() as String? ?? ""
@@ -138,20 +143,26 @@ public final class AppleSiliconPowerCollector: @unchecked Sendable {
                     }
                 }
             } else if group == "GPU Stats", subGroup == "GPU Performance States" {
-                let count = Int(self.stateGetCount?(channel) ?? 0)
-                if count > 0 {
-                    var totalResidency: Int64 = 0
-                    var activeResidency: Int64 = 0
-                    for idx in 0..<count {
-                        let stateName = (self.stateGetNameForIndex?(channel, Int32(idx))?.takeUnretainedValue() as String? ?? "").uppercased()
-                        let residency = max(0, self.stateGetResidency?(channel, Int32(idx)) ?? 0)
-                        totalResidency += residency
-                        if stateName != "IDLE" && stateName != "OFF" && stateName != "DOWN" && !stateName.isEmpty {
-                            activeResidency += residency
+                let isPrimaryGPUPH = (name.uppercased() == "GPUPH")
+                if isPrimaryGPUPH || !matchedPrimaryGPUChannel {
+                    let count = Int(self.stateGetCount?(channel) ?? 0)
+                    if count > 0 {
+                        var totalResidency: Int64 = 0
+                        var activeResidency: Int64 = 0
+                        for idx in 0..<count {
+                            let stateName = (self.stateGetNameForIndex?(channel, Int32(idx))?.takeUnretainedValue() as String? ?? "").uppercased()
+                            let residency = max(0, self.stateGetResidency?(channel, Int32(idx)) ?? 0)
+                            totalResidency += residency
+                            if stateName != "IDLE" && stateName != "OFF" && stateName != "DOWN" && !stateName.isEmpty {
+                                activeResidency += residency
+                            }
                         }
-                    }
-                    if totalResidency > 0 {
-                        gpuUsagePercent = min(100.0, max(0.0, Double(activeResidency) / Double(totalResidency) * 100.0))
+                        if totalResidency > 0 {
+                            gpuUsagePercent = min(100.0, max(0.0, Double(activeResidency) / Double(totalResidency) * 100.0))
+                            if isPrimaryGPUPH {
+                                matchedPrimaryGPUChannel = true
+                            }
+                        }
                     }
                 }
             }
@@ -193,6 +204,7 @@ public final class AppleSiliconPowerCollector: @unchecked Sendable {
 
     private func setupIOReport() {
         guard let handle = dlopen("/usr/lib/libIOReport.dylib", RTLD_NOW | RTLD_LOCAL) else {
+            Self.logger.debug("libIOReport.dylib unavailable; power collector disabled")
             return
         }
         self.dylibHandle = handle

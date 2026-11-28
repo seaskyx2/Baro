@@ -2,7 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${BARO_VERSION:-1.4.1}"
+VERSION="${BARO_VERSION:-1.4.2}"
+
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+  echo "Error: invalid BARO_VERSION '$VERSION' (expected strict SemVer such as 1.4.2)" >&2
+  exit 1
+fi
+
 cd "$ROOT_DIR"
 
 echo "[1/5] Generating AppIcon.icns..."
@@ -27,7 +33,7 @@ strip -x "$APP_DIR/Contents/MacOS/Baro"
 cp "$ROOT_DIR/dist/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 rm -rf "$ROOT_DIR/dist/icon_build"
 
-cat > "$APP_DIR/Contents/Info.plist" << PLIST
+cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -49,7 +55,7 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>${VERSION}</string>
+    <string>0.0.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSApplicationCategoryType</key>
@@ -65,6 +71,8 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
 </dict>
 </plist>
 PLIST
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "$APP_DIR/Contents/Info.plist"
+/usr/bin/plutil -lint "$APP_DIR/Contents/Info.plist" >/dev/null
 
 echo "[4/5] Ad-hoc signing Baro.app..."
 codesign --force --deep --sign - "$APP_DIR"
@@ -81,6 +89,20 @@ ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
   cd "$ROOT_DIR/dist"
   shasum -a 256 "$ZIP_NAME" > "${ZIP_NAME}.sha256"
 )
+
+ZIP_SHA256="$(awk '{print $1}' "$SHA_PATH")"
+CASK_FILE="$ROOT_DIR/packaging/homebrew/baro.rb"
+if [[ -f "$CASK_FILE" && "$ZIP_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+  VERSION="$VERSION" ZIP_SHA256="$ZIP_SHA256" CASK_FILE="$CASK_FILE" python3 - << 'PY'
+import os, pathlib, re
+
+cask_path = pathlib.Path(os.environ["CASK_FILE"])
+text = cask_path.read_text(encoding="utf-8")
+text = re.sub(r'(^\s*version\s+)"[^"]+"', rf'\1"{os.environ["VERSION"]}"', text, count=1, flags=re.MULTILINE)
+text = re.sub(r'(^\s*sha256\s+)(:no_check|"[^"]+")', rf'\1"{os.environ["ZIP_SHA256"]}"', text, count=1, flags=re.MULTILINE)
+cask_path.write_text(text, encoding="utf-8")
+PY
+fi
 
 echo "Done! Release artifacts ready:"
 echo "  - $APP_DIR"

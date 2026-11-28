@@ -36,7 +36,7 @@ public final class SleepAssertionCollector: @unchecked Sendable {
 
     public static func parseAssertions(_ rawDict: [NSNumber: [[String: Any]]]) -> [SleepBlocker] {
         var blockers: [SleepBlocker] = []
-        var seenNames = Set<String>()
+        var indexByName: [String: Int] = [:]
 
         for (pidNum, assertions) in rawDict {
             let pid = pidNum.int32Value
@@ -52,8 +52,18 @@ public final class SleepAssertionCollector: @unchecked Sendable {
                     continue
                 }
 
-                if !seenNames.contains(rawName) {
-                    seenNames.insert(rawName)
+                if let existingIdx = indexByName[rawName] {
+                    // 若同名进程同时持有系统防休眠与屏幕防休眠断言，优先升级保留屏幕防休眠标志
+                    if preventsDisplay && !blockers[existingIdx].preventsDisplaySleep {
+                        blockers[existingIdx] = SleepBlocker(
+                            pid: pid,
+                            processName: rawName,
+                            assertionType: assertType,
+                            preventsDisplaySleep: true
+                        )
+                    }
+                } else {
+                    indexByName[rawName] = blockers.count
                     blockers.append(
                         SleepBlocker(
                             pid: pid,

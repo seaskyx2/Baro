@@ -156,19 +156,11 @@ public final class CollectorEngine: @unchecked Sendable {
             next.batteryPower = cachedOrFreshBattery(minInterval: 15.0)
         }
         if needPower {
-            var powerSnap = siliconPower.sample()
-            if powerSnap.cpuWatts == 0 && powerSnap.aneWatts == 0 && powerSnap.dramWatts == 0 {
-                if let smcWatts = thermalFan.readSystemPowerWatts() {
-                    powerSnap.packageWatts = smcWatts
-                } else {
-                    let batSnap = needBattery ? next.batteryPower : cachedOrFreshBattery(minInterval: 10.0)
-                    if !batSnap.hasInternalBattery && batSnap.powerWatts > 0 {
-                        powerSnap.packageWatts = batSnap.powerWatts
-                    }
-                }
-                powerSnap.isAvailable = powerSnap.isAvailable || powerSnap.packageWatts > 0
-            }
-            next.siliconPower = powerSnap
+            next.siliconPower = resolveSiliconPower(
+                hasSampledBattery: needBattery,
+                sampledBattery: next.batteryPower,
+                bypassThrottle: false
+            )
         }
         return next
     }
@@ -189,21 +181,14 @@ public final class CollectorEngine: @unchecked Sendable {
         let netSnap = includeNetwork ? network.sample() : .empty
         let diskSnap = includeDisk ? (bypassThrottle ? disk.sample() : cachedOrFreshDisk(minInterval: 4.0)) : .empty
         let batSnap = includeBattery ? (bypassThrottle ? batteryPower.sample() : cachedOrFreshBattery(minInterval: 8.0)) : .empty
-        var powerSnap = includeSiliconPower ? siliconPower.sample() : .empty
+        let powerSnap = includeSiliconPower
+            ? resolveSiliconPower(hasSampledBattery: includeBattery, sampledBattery: batSnap, bypassThrottle: bypassThrottle)
+            : .empty
         let thermalSnap = includeThermal ? thermalFan.sample() : .empty
         let sleepBlockers = bypassThrottle ? sleepAssertion.sample() : cachedOrFreshSleepBlockers(minInterval: 6.0)
         let procs = includeProcesses
             ? (bypassThrottle ? processAggregator.sample(limit: 5) : cachedOrFreshProcesses(minInterval: 3.0))
             : (topCPU: [], topMemory: [])
-
-        if includeSiliconPower && powerSnap.cpuWatts == 0 && powerSnap.aneWatts == 0 && powerSnap.dramWatts == 0 {
-            if let smcWatts = thermalFan.readSystemPowerWatts() {
-                powerSnap.packageWatts = smcWatts
-            } else if !batSnap.hasInternalBattery && batSnap.powerWatts > 0 {
-                powerSnap.packageWatts = batSnap.powerWatts
-            }
-            powerSnap.isAvailable = powerSnap.isAvailable || powerSnap.packageWatts > 0
-        }
 
         return SystemSnapshot(
             timestamp: Date(),
@@ -219,6 +204,32 @@ public final class CollectorEngine: @unchecked Sendable {
             topCPUApps: procs.topCPU,
             topMemoryApps: procs.topMemory
         )
+    }
+
+    private func resolveSiliconPower(
+        hasSampledBattery: Bool,
+        sampledBattery: BatteryPowerSnapshot,
+        bypassThrottle: Bool
+    ) -> AppleSiliconPowerSnapshot {
+        var powerSnap = siliconPower.sample()
+        // 首帧建立 IOReport 基准期间不回退整机墙插功率，防止折线首点产生 20–45W 假尖峰
+        if powerSnap.isWarmingUp {
+            return powerSnap
+        }
+        if powerSnap.cpuWatts == 0 && powerSnap.aneWatts == 0 && powerSnap.dramWatts == 0 {
+            if let smcWatts = thermalFan.readSystemPowerWatts() {
+                powerSnap.packageWatts = smcWatts
+            } else {
+                let batSnap = hasSampledBattery
+                    ? sampledBattery
+                    : (bypassThrottle ? batteryPower.sample() : cachedOrFreshBattery(minInterval: 10.0))
+                if !batSnap.hasInternalBattery && batSnap.powerWatts > 0 {
+                    powerSnap.packageWatts = batSnap.powerWatts
+                }
+            }
+            powerSnap.isAvailable = powerSnap.isAvailable || powerSnap.packageWatts > 0
+        }
+        return powerSnap
     }
 
     private func cachedOrFreshDisk(minInterval: TimeInterval) -> DiskSnapshot {

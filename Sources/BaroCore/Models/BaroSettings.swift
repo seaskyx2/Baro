@@ -117,10 +117,18 @@ public final class BaroSettings: ObservableObject {
     }
 
     @Published public var coldInterval: TimeInterval {
-        didSet { defaults.set(coldInterval, forKey: Keys.coldInterval) }
+        didSet {
+            let safe = Self.sanitizedDouble(coldInterval, default: 2.0, range: 1.0...60.0)
+            if coldInterval != safe { coldInterval = safe; return }
+            defaults.set(safe, forKey: Keys.coldInterval)
+        }
     }
     @Published public var hotInterval: TimeInterval {
-        didSet { defaults.set(hotInterval, forKey: Keys.hotInterval) }
+        didSet {
+            let safe = Self.sanitizedDouble(hotInterval, default: 1.5, range: 0.8...30.0)
+            if hotInterval != safe { hotInterval = safe; return }
+            defaults.set(safe, forKey: Keys.hotInterval)
+        }
     }
     @Published public var adaptToLowPower: Bool {
         didSet { defaults.set(adaptToLowPower, forKey: Keys.adaptToLowPower) }
@@ -164,7 +172,11 @@ public final class BaroSettings: ObservableObject {
         didSet { defaults.set(enableThermalAlert, forKey: Keys.enableThermalAlert) }
     }
     @Published public var thermalAlertThreshold: Double {
-        didSet { defaults.set(thermalAlertThreshold, forKey: Keys.thermalAlertThreshold) }
+        didSet {
+            let safe = Self.sanitizedDouble(thermalAlertThreshold, default: 92.0, range: 50.0...120.0)
+            if thermalAlertThreshold != safe { thermalAlertThreshold = safe; return }
+            defaults.set(safe, forKey: Keys.thermalAlertThreshold)
+        }
     }
     @Published public var enableMemoryAlert: Bool {
         didSet { defaults.set(enableMemoryAlert, forKey: Keys.enableMemoryAlert) }
@@ -176,7 +188,21 @@ public final class BaroSettings: ObservableObject {
         didSet { defaults.set(enableLowDiskAlert, forKey: Keys.enableLowDiskAlert) }
     }
     @Published public var lowDiskAlertThresholdGB: Double {
-        didSet { defaults.set(lowDiskAlertThresholdGB, forKey: Keys.lowDiskAlertThresholdGB) }
+        didSet {
+            let safe = Self.sanitizedDouble(lowDiskAlertThresholdGB, default: 20.0, range: 1.0...2_000.0)
+            if lowDiskAlertThresholdGB != safe { lowDiskAlertThresholdGB = safe; return }
+            defaults.set(safe, forKey: Keys.lowDiskAlertThresholdGB)
+        }
+    }
+
+    /// 过滤 UserDefaults 中被损坏或手工写入的 NaN / ±Inf / 越界浮点数，杜绝下游整数强转崩溃
+    nonisolated public static func sanitizedDouble(
+        _ raw: Double,
+        default defaultValue: Double,
+        range: ClosedRange<Double>
+    ) -> Double {
+        guard raw.isFinite, raw > 0 else { return defaultValue }
+        return min(range.upperBound, max(range.lowerBound, raw))
     }
 
     public init(defaults: UserDefaults = .standard) {
@@ -211,9 +237,9 @@ public final class BaroSettings: ObservableObject {
         self.showMenuPower = defaults.object(forKey: Keys.showMenuPower) as? Bool ?? false
 
         let savedCold = defaults.double(forKey: Keys.coldInterval)
-        self.coldInterval = savedCold > 0 ? savedCold : 2.0
+        self.coldInterval = Self.sanitizedDouble(savedCold, default: 2.0, range: 1.0...60.0)
         let savedHot = defaults.double(forKey: Keys.hotInterval)
-        self.hotInterval = savedHot > 0 ? savedHot : 1.5
+        self.hotInterval = Self.sanitizedDouble(savedHot, default: 1.5, range: 0.8...30.0)
         self.adaptToLowPower = defaults.object(forKey: Keys.adaptToLowPower) as? Bool ?? true
         self.enableGlobalHotKey = defaults.object(forKey: Keys.enableGlobalHotKey) as? Bool ?? true
         if let rawHK = defaults.string(forKey: Keys.globalHotKeyPreset),
@@ -235,12 +261,12 @@ public final class BaroSettings: ObservableObject {
 
         self.enableThermalAlert = defaults.object(forKey: Keys.enableThermalAlert) as? Bool ?? false
         let savedThermal = defaults.double(forKey: Keys.thermalAlertThreshold)
-        self.thermalAlertThreshold = savedThermal > 0 ? savedThermal : 92.0
+        self.thermalAlertThreshold = Self.sanitizedDouble(savedThermal, default: 92.0, range: 50.0...120.0)
         self.enableMemoryAlert = defaults.object(forKey: Keys.enableMemoryAlert) as? Bool ?? false
         self.enableLowBatteryAlert = defaults.object(forKey: Keys.enableLowBatteryAlert) as? Bool ?? false
         self.enableLowDiskAlert = defaults.object(forKey: Keys.enableLowDiskAlert) as? Bool ?? false
         let savedLowDisk = defaults.double(forKey: Keys.lowDiskAlertThresholdGB)
-        self.lowDiskAlertThresholdGB = savedLowDisk > 0 ? savedLowDisk : 20.0
+        self.lowDiskAlertThresholdGB = Self.sanitizedDouble(savedLowDisk, default: 20.0, range: 1.0...2_000.0)
     }
 
     public var resolvedLanguage: ResolvedLanguage {

@@ -1,11 +1,13 @@
 import Darwin
 import Foundation
 import IOKit
+import os
 
 /// 纯只读温度与风扇采集器：
 /// 1. 优先通过 IOHIDEventSystemClient 读取 Apple Silicon 温度传感器（带 M4 休眠核异常值滤波）
 /// 2. 通过只读 AppleSMC 接口读取风扇 RPM 及温度键补充/兜底（绝不包含任何写入命令）
 public final class ThermalFanCollector: @unchecked Sendable {
+    private static let logger = Logger(subsystem: "com.baro.monitor", category: "ThermalFanCollector")
     private typealias IOHIDEventSystemClientRef = UnsafeMutableRawPointer
     private typealias IOHIDServiceClientRef = UnsafeMutableRawPointer
     private typealias IOHIDEventRef = UnsafeMutableRawPointer
@@ -91,6 +93,7 @@ public final class ThermalFanCollector: @unchecked Sendable {
 
     private func setupHIDTemperatureClient() {
         guard let handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_LOCAL) else {
+            Self.logger.debug("IOKit dlopen unavailable for HID temperature sensors")
             return
         }
         self.iokitHandle = handle
@@ -106,6 +109,7 @@ public final class ThermalFanCollector: @unchecked Sendable {
               let copyPropFn = resolve("IOHIDServiceClientCopyProperty", as: ServiceCopyPropertyFn.self),
               let copyEventFn = resolve("IOHIDServiceClientCopyEvent", as: ServiceCopyEventFn.self),
               let getFloatFn = resolve("IOHIDEventGetFloatValue", as: EventGetFloatValueFn.self) else {
+            Self.logger.debug("IOHIDEventSystemClient symbols unavailable; falling back to AppleSMC")
             return
         }
 
@@ -216,6 +220,7 @@ public final class ReadOnlySMCClient: @unchecked Sendable {
     private let kSMCReadKeyCmd: UInt8 = 5
     private let kSMCGetKeyInfoCmd: UInt8 = 9
 
+    private let clientLock = NSLock()
     private var connection: io_connect_t = 0
     /// 含负向缓存：当键在当前芯片上不存在时缓存为 `.some(nil)`，避免每次采样重复发起内核查询
     private var keyInfoCache: [UInt32: SMCKeyInfo?] = [:]
@@ -245,27 +250,43 @@ public final class ReadOnlySMCClient: @unchecked Sendable {
         }
     }
 
+    /// 安全地将可能包含 NaN / ±Inf 或越界值的 SMC 浮点读数转换为受控范围内的整数
+    public static func safeRoundedInt(_ value: Double?, validRange: ClosedRange<Int>) -> Int? {
+        guard let value, value.isFinite else { return nil }
+        let rounded = value.rounded()
+        guard rounded >= Double(validRange.lowerBound),
+              rounded <= Double(validRange.upperBound) else {
+            return nil
+        }
+        return Int(rounded)
+    }
+
     public func readFans() -> [FanReading] {
-        guard connection != 0, let countVal = readNumericValue(forKey: "FNum") else {
+        clientLock.lock()
+        defer { clientLock.unlock() }
+
+        guard connection != 0,
+              let fanCount = Self.safeRoundedInt(readNumericValue(forKey: "FNum"), validRange: 1...8) else {
             return []
         }
-        let fanCount = Int(countVal.rounded())
-        guard fanCount > 0, fanCount <= 8 else { return [] }
 
         var fans: [FanReading] = []
         for idx in 0..<fanCount {
-            let current = Int((readNumericValue(forKey: "F\(idx)Ac") ?? 0).rounded())
-            let minRPM = Int((readNumericValue(forKey: "F\(idx)Mn") ?? 0).rounded())
-            let maxRPM = Int((readNumericValue(forKey: "F\(idx)Mx") ?? 0).rounded())
-            fans.append(FanReading(id: idx, currentRPM: max(0, current), minRPM: max(0, minRPM), maxRPM: max(0, maxRPM)))
+            let current = Self.safeRoundedInt(readNumericValue(forKey: "F\(idx)Ac"), validRange: 0...30_000) ?? 0
+            let minRPM = Self.safeRoundedInt(readNumericValue(forKey: "F\(idx)Mn"), validRange: 0...30_000) ?? 0
+            let maxRPM = Self.safeRoundedInt(readNumericValue(forKey: "F\(idx)Mx"), validRange: 0...30_000) ?? 0
+            fans.append(FanReading(id: idx, currentRPM: current, minRPM: minRPM, maxRPM: maxRPM))
         }
         return fans
     }
 
     public func readSystemPowerWatts() -> Double? {
+        clientLock.lock()
+        defer { clientLock.unlock() }
+
         guard connection != 0 else { return nil }
         for key in ["PSTR", "PHPC", "PDTR"] {
-            if let value = readNumericValue(forKey: key), value > 0.1 && value < 500.0 {
+            if let value = readNumericValue(forKey: key), value.isFinite, value > 0.1 && value < 500.0 {
                 return value
             }
         }
@@ -273,10 +294,13 @@ public final class ReadOnlySMCClient: @unchecked Sendable {
     }
 
     public func readKnownTemperatureKeys() -> [ThermalSensorReading] {
+        clientLock.lock()
+        defer { clientLock.unlock() }
+
         guard connection != 0 else { return [] }
         var readings: [ThermalSensorReading] = []
         for entry in Self.candidateTemperatureKeys {
-            if let value = readNumericValue(forKey: entry.key), value > 1.0 && value <= 125.0 {
+            if let value = readNumericValue(forKey: entry.key), value.isFinite, value > 1.0 && value <= 125.0 {
                 readings.append(ThermalSensorReading(name: entry.label, celsius: value, source: "SMC"))
             }
         }
@@ -285,6 +309,7 @@ public final class ReadOnlySMCClient: @unchecked Sendable {
 
     public static func decodeSMCValue(bytes: [UInt8], dataType: UInt32, dataSize: UInt32) -> Double? {
         let typeStr = fourCCToString(dataType)
+        let decoded: Double?
         switch typeStr {
         case "flt ":
             guard dataSize >= 4, bytes.count >= 4 else { return nil }
@@ -292,31 +317,33 @@ public final class ReadOnlySMCClient: @unchecked Sendable {
                 | (UInt32(bytes[1]) << 8)
                 | (UInt32(bytes[2]) << 16)
                 | (UInt32(bytes[3]) << 24)
-            return Double(Float(bitPattern: raw))
+            decoded = Double(Float(bitPattern: raw))
         case "fpe2":
             guard dataSize >= 2, bytes.count >= 2 else { return nil }
             let raw = (UInt16(bytes[0]) << 8) | UInt16(bytes[1])
-            return Double(raw) / 4.0
+            decoded = Double(raw) / 4.0
         case "sp78":
             guard dataSize >= 2, bytes.count >= 2 else { return nil }
             let raw = Int16(bitPattern: (UInt16(bytes[0]) << 8) | UInt16(bytes[1]))
-            return Double(raw) / 256.0
+            decoded = Double(raw) / 256.0
         case "ui8 ":
             guard dataSize >= 1, bytes.count >= 1 else { return nil }
-            return Double(bytes[0])
+            decoded = Double(bytes[0])
         case "ui16":
             guard dataSize >= 2, bytes.count >= 2 else { return nil }
-            return Double((UInt16(bytes[0]) << 8) | UInt16(bytes[1]))
+            decoded = Double((UInt16(bytes[0]) << 8) | UInt16(bytes[1]))
         case "ui32":
             guard dataSize >= 4, bytes.count >= 4 else { return nil }
             let raw = (UInt32(bytes[0]) << 24)
                 | (UInt32(bytes[1]) << 16)
                 | (UInt32(bytes[2]) << 8)
                 | UInt32(bytes[3])
-            return Double(raw)
+            decoded = Double(raw)
         default:
-            return nil
+            decoded = nil
         }
+        guard let val = decoded, val.isFinite else { return nil }
+        return val
     }
 
     private func openConnection() {

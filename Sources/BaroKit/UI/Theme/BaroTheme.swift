@@ -45,7 +45,7 @@ public struct BaroLiquidGlassContainer: ViewModifier {
     }
 
     public func body(content: Content) -> some View {
-        #if compiler(>=6.2)
+        #if compiler(>=6.2) && canImport(FoundationModels)
         if #available(macOS 26.0, *) {
             content
                 .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))

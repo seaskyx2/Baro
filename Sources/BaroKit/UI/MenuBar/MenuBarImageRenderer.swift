@@ -76,22 +76,47 @@ public enum MenuBarImageRenderer {
         let style = settings.menuBarStyle
         let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 
-        let cpuBucket = Int(data.cpuPercent.rounded())
-        let memBucket = Int(data.memoryPercent.rounded())
+        let hasColorAccent = needsColorRendering(
+            data: data,
+            style: style,
+            showCPU: settings.showMenuCPU,
+            showMemory: settings.showMenuMemory,
+            showDisk: settings.showMenuDisk,
+            showTemperature: settings.showMenuTemperature
+        )
+
+        let usesCPU = settings.showMenuBarIcon || settings.showMenuCPU || style == .sparkline || style == .miniBars
+        let usesMem = (style != .breathingDot) && (settings.showMenuMemory || style == .miniBars)
+        let usesNet = (style != .breathingDot) && settings.showMenuNetwork
+        let usesTemp = (style == .compactDualRow || style == .singleLine) && settings.showMenuTemperature
+        let usesPower = (style == .compactDualRow || style == .singleLine) && settings.showMenuPower
+
+        let cpuBucket = usesCPU ? Int(data.cpuPercent.rounded()) : -1
+        let cpuColorTier = usesCPU ? (data.cpuPercent >= 85.0 ? 2 : (data.cpuPercent >= 65.0 ? 1 : 0)) : 0
+        let memBucket = usesMem ? Int(data.memoryPercent.rounded()) : -1
+        let memPressureSig = usesMem ? data.memoryPressure.rawValue : ""
+
         let diskSig: String = {
             guard settings.showMenuDisk else { return "" }
             let freePart = data.diskFreeBytes.map { ByteFormatter.compactDiskSize($0) } ?? "--"
             let pctPart = data.diskUsedPercent.map { "\(Int($0.rounded()))" } ?? "--"
-            return "\(settings.menuBarDiskFormat.rawValue):\(freePart):\(pctPart)"
+            let tightPart = isDiskSpaceTight(freeBytes: data.diskFreeBytes, usedPercent: data.diskUsedPercent) ? "T" : "N"
+            return "\(settings.menuBarDiskFormat.rawValue):\(freePart):\(pctPart):\(tightPart)"
         }()
-        let upStr = settings.showMenuNetwork ? ByteFormatter.compactRate(data.uploadBytesPerSec) : ""
-        let downStr = settings.showMenuNetwork ? ByteFormatter.compactRate(data.downloadBytesPerSec) : ""
-        let netUpDominant = (style == .singleLine && settings.showMenuNetwork && data.uploadBytesPerSec > data.downloadBytesPerSec && data.uploadBytesPerSec > 1_024) ? "U" : "D"
-        let tempBucket = settings.showMenuTemperature ? (data.temperatureCelsius.map { Int($0.rounded()) } ?? -1) : -99
-        let powerStr = settings.showMenuPower ? (data.isPowerAvailable ? String(format: "%.1f", data.packageWatts) : "--") : ""
+
+        let upStr = usesNet ? ByteFormatter.compactRate(data.uploadBytesPerSec) : ""
+        let downStr = usesNet ? ByteFormatter.compactRate(data.downloadBytesPerSec) : ""
+        let netUpDominant = (style == .singleLine && usesNet && data.uploadBytesPerSec > data.downloadBytesPerSec && data.uploadBytesPerSec > 1_024) ? "U" : "D"
+        let tempBucket = usesTemp ? (data.temperatureCelsius.map { Int($0.rounded()) } ?? -1) : -99
+        let tempColorTier: Int = {
+            guard usesTemp, let t = data.temperatureCelsius else { return 0 }
+            return t >= 88.0 ? 2 : (t >= 75.0 ? 1 : 0)
+        }()
+        let powerStr = usesPower ? (data.isPowerAvailable ? String(format: "%.1f", data.packageWatts) : "--") : ""
         let sparkBucket = style == .sparkline
             ? data.cpuSparklinePoints.map { String(Int($0.rounded())) }.joined(separator: ",")
             : ""
+        let healthSig = style == .breathingDot ? data.healthLevel.rawValue : ""
         let topApp = (style == .breathingDot && data.healthLevel == .elevated) ? (data.topCPUAppPath ?? "") : ""
 
         return [
@@ -104,16 +129,16 @@ public enum MenuBarImageRenderer {
             settings.showMenuTemperature ? "1" : "0",
             settings.showMenuPower ? "1" : "0",
             isDark ? "D" : "L",
-            "\(cpuBucket)",
-            "\(memBucket)",
-            data.memoryPressure.rawValue,
+            hasColorAccent ? "C" : "T",
+            "\(cpuBucket):\(cpuColorTier)",
+            "\(memBucket):\(memPressureSig)",
             diskSig,
             upStr,
             downStr,
             netUpDominant,
-            "\(tempBucket)",
+            "\(tempBucket):\(tempColorTier)",
             powerStr,
-            data.healthLevel.rawValue,
+            healthSig,
             topApp,
             sparkBucket
         ].joined(separator: "|")

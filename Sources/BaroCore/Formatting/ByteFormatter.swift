@@ -4,12 +4,12 @@ public enum ByteFormatter {
     /// 紧凑速率格式，专为菜单栏窄空间设计（如 `0B`, `128K`, `4.2M`，含四舍五入进位保护）
     public static func compactRate(_ bytesPerSec: Double) -> String {
         let value = max(0, bytesPerSec)
-        if value < 1_000 {
+        if value < 999.5 {
             return "\(Int(value.rounded()))B"
         }
         let kb = value / 1_024
         if kb < 999.5 {
-            return "\(Int(kb.rounded()))K"
+            return "\(max(1, Int(kb.rounded())))K"
         }
         let mb = kb / 1_024
         if mb < 99.95 {
@@ -25,7 +25,7 @@ public enum ByteFormatter {
     /// 面板详细速率格式（如 `4.28 MB/s`）
     public static func detailedRate(_ bytesPerSec: Double) -> String {
         let value = max(0, bytesPerSec)
-        if value < 1_000 {
+        if value < 999.5 {
             return "\(Int(value.rounded())) B/s"
         }
         let kb = value / 1_024
@@ -48,7 +48,7 @@ public enum ByteFormatter {
 
     /// 内存容量格式（macOS RAM 使用 1024 进制）
     public static func memorySize(_ bytes: UInt64) -> String {
-        if bytes == 0 { return "0 B" }
+        if bytes < 1_024 { return "\(bytes) B" }
         let kb = Double(bytes) / 1_024.0
         if kb < 999.5 {
             return "\(Int(kb.rounded())) KB"
@@ -66,7 +66,7 @@ public enum ByteFormatter {
 
     /// 磁盘与网络流量格式化（macOS Finder 口径使用 1000 进制显示磁盘容量）
     public static func diskSize(_ bytes: UInt64) -> String {
-        if bytes == 0 { return "0 B" }
+        if bytes < 1_000 { return "\(bytes) B" }
         let kb = Double(bytes) / 1_000.0
         if kb < 999.5 {
             return "\(Int(kb.rounded())) KB"

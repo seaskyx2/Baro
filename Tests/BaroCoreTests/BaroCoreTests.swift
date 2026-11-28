@@ -38,7 +38,11 @@ final class BaroCoreTests: XCTestCase {
         // 进位临界点防跳变验证
         XCTAssertEqual(ByteFormatter.compactDiskSize(99_960_000_000), "100G")
         XCTAssertEqual(ByteFormatter.compactDiskSize(999_600_000_000), "1.00T")
+        XCTAssertEqual(ByteFormatter.compactRate(999.7), "1K")
+        XCTAssertEqual(ByteFormatter.detailedRate(999.7), "1.0 KB/s")
         XCTAssertEqual(ByteFormatter.compactRate(999.6 * 1_024), "1.0M")
+        XCTAssertEqual(ByteFormatter.memorySize(512), "512 B")
+        XCTAssertEqual(ByteFormatter.diskSize(450), "450 B")
         XCTAssertEqual(ByteFormatter.uptime(3 * 86_400 + 14 * 3_600), "3d 14h")
     }
 
@@ -126,6 +130,13 @@ final class BaroCoreTests: XCTestCase {
         let decodedFloat = ReadOnlySMCClient.decodeSMCValue(bytes: floatBytes, dataType: fltCode, dataSize: 4)
         XCTAssertEqual(decodedFloat ?? 0, 1234.5, accuracy: 0.1)
 
+        // 验证全 0xFF (NaN) 或无穷大浮点绝不透传触发下游 Int(...) 强转崩溃
+        XCTAssertNil(ReadOnlySMCClient.decodeSMCValue(bytes: [0xFF, 0xFF, 0xFF, 0xFF], dataType: fltCode, dataSize: 4))
+        XCTAssertNil(ReadOnlySMCClient.safeRoundedInt(.nan, validRange: 0...30_000))
+        XCTAssertNil(ReadOnlySMCClient.safeRoundedInt(.infinity, validRange: 0...30_000))
+        XCTAssertNil(ReadOnlySMCClient.safeRoundedInt(99_999.0, validRange: 0...30_000))
+        XCTAssertEqual(ReadOnlySMCClient.safeRoundedInt(2150.4, validRange: 0...30_000), 2150)
+
         let fpe2Code = (UInt32(Character("f").asciiValue!) << 24)
             | (UInt32(Character("p").asciiValue!) << 16)
             | (UInt32(Character("e").asciiValue!) << 8)
@@ -181,6 +192,23 @@ final class BaroCoreTests: XCTestCase {
         XCTAssertFalse(UpdateChecker.isVersionNewer(remote: "1.3", current: "1.3.0"))
         XCTAssertFalse(UpdateChecker.isVersionNewer(remote: "1.2.1", current: "1.2.2"))
         XCTAssertFalse(UpdateChecker.isVersionNewer(remote: "", current: "1.2.2"))
+
+        // SemVer 预发布与安全跳转 URL 白名单验证
+        XCTAssertFalse(UpdateChecker.isVersionNewer(remote: "v1.4.1-rc.2", current: "1.4.1"))
+        XCTAssertTrue(UpdateChecker.isVersionNewer(remote: "v1.4.1", current: "1.4.1-rc.2"))
+        XCTAssertTrue(UpdateChecker.isVersionNewer(remote: "1.4.2-rc.2", current: "1.4.2-rc.1"))
+        XCTAssertEqual(
+            UpdateChecker.sanitizedReleaseURL("https://github.com/seaskyx2/Baro/releases/tag/v1.4.2").absoluteString,
+            "https://github.com/seaskyx2/Baro/releases/tag/v1.4.2"
+        )
+        XCTAssertEqual(
+            UpdateChecker.sanitizedReleaseURL("file:///System/Applications/Calculator.app").absoluteString,
+            "https://github.com/seaskyx2/Baro/releases/latest"
+        )
+        XCTAssertEqual(
+            UpdateChecker.sanitizedReleaseURL("https://evil.example.com/seaskyx2/Baro/releases").absoluteString,
+            "https://github.com/seaskyx2/Baro/releases/latest"
+        )
     }
 
     func testSmartBatteryParser() {
@@ -375,7 +403,8 @@ final class BaroCoreTests: XCTestCase {
 
         let rawAssertions: [NSNumber: [[String: Any]]] = [
             100: [["AssertType": "PreventUserIdleSystemSleep", "Process Name": "powerd"]],
-            200: [["AssertType": "PreventUserIdleDisplaySleep", "Process Name": "CaffeineApp"]],
+            200: [["AssertType": "PreventUserIdleSystemSleep", "Process Name": "CaffeineApp"]],
+            201: [["AssertType": "PreventUserIdleDisplaySleep", "Process Name": "CaffeineApp"]],
             300: [["AssertType": "BackgroundTask", "Process Name": "SomeTask"]]
         ]
         let blockers = SleepAssertionCollector.parseAssertions(rawAssertions)
@@ -430,6 +459,74 @@ final class BaroCoreTests: XCTestCase {
             drained.fulfill()
         }
         wait(for: [drained], timeout: 2.0)
+    }
+
+    /// 回归：验证 32 位 CPU Tick 跨 2^31 符号位与 2^32 回绕、64/32 位网卡跨位宽隔离、Settings 非有限浮点净化、单实例平局裁决及跨阈值签名重绘
+    @MainActor
+    func testAuditHardeningRegressions() throws {
+        // 1. CPU 跨 0x7FFF_FFFF (2^31) 符号位翻转与 0xFFFF_FFFF (2^32) 回绕绝不有符号扩展溢出
+        let prevSignBoundary = CPUCollector.CoreTicks(user: 0x7FFF_FFF0, system: 100, idle: 0xFFFF_FFF0, nice: 0)
+        let currSignBoundary = CPUCollector.CoreTicks(user: 0x8000_0010, system: 120, idle: 0x0000_0010, nice: 0)
+        let tickDelta = CPUCollector.computeCoreTickDelta(current: currSignBoundary, previous: prevSignBoundary)
+        XCTAssertEqual(tickDelta.user, 32)
+        XCTAssertEqual(tickDelta.system, 20)
+        XCTAssertEqual(tickDelta.idle, 32)
+        XCTAssertEqual(tickDelta.nice, 0)
+
+        // 2. Network 64 位与 32 位回退之间严禁跨位宽相减产生 N × 4 GiB 假尖峰
+        let prev32: [String: NetworkCollector.InterfaceTotals] = ["en0": .init(inBytes: 500_000_000, outBytes: 100_000)]
+        let curr64: [String: NetworkCollector.InterfaceTotals] = ["en0": .init(inBytes: 9_089_934_592, outBytes: 4_295_067_296)]
+        XCTAssertNil(NetworkCollector.computeSafeTrafficDelta(
+            currentTotals: curr64,
+            currentIs64Bit: true,
+            previousTotals: prev32,
+            previousIs64Bit: false
+        ))
+        let sameWidth = NetworkCollector.computeSafeTrafficDelta(
+            currentTotals: ["en0": .init(inBytes: 9_090_034_592, outBytes: 4_295_077_296)],
+            currentIs64Bit: true,
+            previousTotals: curr64,
+            previousIs64Bit: true
+        )
+        XCTAssertEqual(sameWidth?.deltaIn, 100_000)
+        XCTAssertEqual(sameWidth?.deltaOut, 10_000)
+
+        // 3. BaroSettings 对 NaN / ±Inf 与越界值的防御
+        XCTAssertEqual(BaroSettings.sanitizedDouble(.nan, default: 20.0, range: 1.0...2_000.0), 20.0)
+        XCTAssertEqual(BaroSettings.sanitizedDouble(.infinity, default: 20.0, range: 1.0...2_000.0), 20.0)
+        XCTAssertEqual(BaroSettings.sanitizedDouble(99_999.0, default: 20.0, range: 1.0...2_000.0), 2_000.0)
+
+        // 4. 双实例同毫秒并发启动确定性胜出（较小 PID 留存，较大 PID 退出，绝不互杀）
+        let t0 = Date()
+        let peers: [(pid: pid_t, launchDate: Date?, isTerminated: Bool)] = [
+            (pid: 1001, launchDate: t0, isTerminated: false),
+            (pid: 1002, launchDate: t0, isTerminated: false)
+        ]
+        XCTAssertFalse(AppDelegate.shouldTerminateAsDuplicate(currentPID: 1001, currentLaunchDate: t0, peers: peers))
+        XCTAssertTrue(AppDelegate.shouldTerminateAsDuplicate(currentPID: 1002, currentLaunchDate: t0, peers: peers))
+
+        // 5. MenuBarImageRenderer 跨 65.0% 变色阈值但同整数桶 (64.6 vs 65.2 -> 65) 必须产生不同签名触发重绘
+        let suiteName = "com.baro.tests.audit.sig"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = BaroSettings(defaults: defaults)
+        settings.menuBarStyle = .compactDualRow
+        settings.showMenuCPU = true
+        let darkApp = try XCTUnwrap(NSAppearance(named: .darkAqua))
+
+        var belowThreshold = MenuBarRenderData.empty
+        belowThreshold.cpuPercent = 64.6
+        var aboveThreshold = MenuBarRenderData.empty
+        aboveThreshold.cpuPercent = 65.2
+
+        let sigBelow = MenuBarImageRenderer.renderSignature(data: belowThreshold, settings: settings, appearance: darkApp)
+        let sigAbove = MenuBarImageRenderer.renderSignature(data: aboveThreshold, settings: settings, appearance: darkApp)
+        XCTAssertNotEqual(sigBelow, sigAbove)
+
+        // 6. 非 .app 测试环境下通知守卫必须安全拦截而不抛异常
+        SamplingCoordinator.requestNotificationPermissionIfNeeded()
     }
 
     @MainActor
