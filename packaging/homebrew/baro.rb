@@ -1,5 +1,5 @@
 cask "baro" do
-  version "1.4.0"
+  version "1.4.1"
   sha256 :no_check
 
   url "https://github.com/seaskyx2/Baro/releases/download/v#{version}/Baro-v#{version}-macOS-arm64.zip"

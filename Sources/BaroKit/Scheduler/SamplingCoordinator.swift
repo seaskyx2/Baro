@@ -6,6 +6,14 @@ import Foundation
 
 @MainActor
 public final class SamplingCoordinator: ObservableObject {
+    private struct SampledMask: Sendable {
+        let cpu: Bool
+        let memory: Bool
+        let network: Bool
+        let power: Bool
+        let thermal: Bool
+    }
+
     public let hostInfo: HostStaticInfo
     public let settings: BaroSettings
 
@@ -38,7 +46,7 @@ public final class SamplingCoordinator: ObservableObject {
     private var timer: Timer?
     private var isSamplingInFlight = false
     private var coldProcessSamplingActive = false
-    private var workspaceObservers: [NSObjectProtocol] = []
+    private nonisolated(unsafe) var workspaceObservers: [NSObjectProtocol] = []
     private var settingsCancellables = Set<AnyCancellable>()
     private var lastAlertDates: [String: Date] = [:]
 
@@ -52,6 +60,13 @@ public final class SamplingCoordinator: ObservableObject {
         self.healthSummary = self.latestHealthSummary
         registerSleepNotifications()
         observeSettingsChanges()
+    }
+
+    deinit {
+        let wsCenter = NSWorkspace.shared.notificationCenter
+        for obs in workspaceObservers {
+            wsCenter.removeObserver(obs)
+        }
     }
 
     public func start() {
@@ -213,73 +228,100 @@ public final class SamplingCoordinator: ObservableObject {
         isSamplingInFlight = true
 
         let hot = isPanelOpen
-        let prev = latestSnapshot
         let style = settings.menuBarStyle
-        let needCPU = hot || settings.showMenuCPU || style == .sparkline || style == .miniBars || style == .breathingDot
-        let needMemory = hot || settings.showMenuMemory || style == .sparkline || style == .miniBars
-        let needDisk = hot || settings.showMenuDisk || settings.enableLowDiskAlert
-        let needNetwork = hot || settings.showMenuNetwork
-        let needThermal = hot || settings.showMenuTemperature
-        let needPower = hot || settings.showMenuPower
 
-        let includeDisk = hot && (settings.showDiskCard || settings.showMenuDisk || settings.enableLowDiskAlert)
-        let includeBattery = hot && settings.showBatteryPowerCard
-        let includeProcs = hot && (settings.showTopAppsSection || settings.menuBarStyle == .breathingDot)
+        let menuNeedCPU = settings.showMenuCPU || style == .sparkline || style == .miniBars || style == .breathingDot
+        let menuNeedMem = settings.showMenuMemory || style == .sparkline || style == .miniBars
 
-        // 「灵动圆环」仅在高压态时于冷态做节流进程采样（需两轮建立 CPU 差分基线后才会浮现图标）
+        let sampleCPU = hot ? (settings.showCPUCard || menuNeedCPU) : menuNeedCPU
+        let sampleMemory = hot
+            ? (settings.showMemoryCard || menuNeedMem || settings.enableMemoryAlert)
+            : (menuNeedMem || settings.enableMemoryAlert)
+        let sampleDisk = hot
+            ? (settings.showDiskCard || settings.showMenuDisk || settings.enableLowDiskAlert)
+            : (settings.showMenuDisk || settings.enableLowDiskAlert)
+        let sampleNetwork = hot
+            ? (settings.showNetworkCard || settings.showMenuNetwork)
+            : settings.showMenuNetwork
+        let sampleThermal = hot
+            ? (settings.showPowerGPUCard || settings.showCPUCard || settings.showMenuTemperature || settings.enableThermalAlert)
+            : (settings.showMenuTemperature || settings.enableThermalAlert)
+        let samplePower = hot
+            ? (settings.showPowerGPUCard || settings.showMenuPower)
+            : settings.showMenuPower
+        let sampleBattery = hot
+            ? (settings.showBatteryPowerCard || settings.enableLowBatteryAlert)
+            : settings.enableLowBatteryAlert
+        let sampleProcs = hot && (settings.showTopAppsSection || style == .breathingDot)
+
+        // 「灵动圆环」仅在高压态时于冷态做节流进程采样
         let needColdProcs = !hot && style == .breathingDot && latestHealthSummary.level == .elevated
         if !hot && !needColdProcs && coldProcessSamplingActive {
             engine.resetHotProcessThrottle()
         }
         coldProcessSamplingActive = needColdProcs
+
+        let mask = SampledMask(
+            cpu: sampleCPU,
+            memory: sampleMemory,
+            network: sampleNetwork,
+            power: samplePower,
+            thermal: sampleThermal
+        )
         let capturedEngine = engine
 
         Task.detached(priority: .utility) {
             let nextSnapshot: SystemSnapshot
             if hot {
                 nextSnapshot = capturedEngine.sampleHot(
-                    includeCPU: true,
-                    includeMemory: true,
-                    includeNetwork: true,
-                    includeDisk: includeDisk,
-                    includeBattery: includeBattery,
-                    includeSiliconPower: true,
-                    includeThermal: true,
-                    includeProcesses: includeProcs
+                    includeCPU: sampleCPU,
+                    includeMemory: sampleMemory,
+                    includeNetwork: sampleNetwork,
+                    includeDisk: sampleDisk,
+                    includeBattery: sampleBattery,
+                    includeSiliconPower: samplePower,
+                    includeThermal: sampleThermal,
+                    includeProcesses: sampleProcs
                 )
             } else {
                 nextSnapshot = capturedEngine.sampleCold(
-                    previous: prev,
-                    needCPU: needCPU,
-                    needMemory: needMemory,
-                    needDisk: needDisk,
-                    needNetwork: needNetwork,
-                    needThermal: needThermal,
-                    needPower: needPower,
+                    needCPU: sampleCPU,
+                    needMemory: sampleMemory,
+                    needDisk: sampleDisk,
+                    needNetwork: sampleNetwork,
+                    needThermal: sampleThermal,
+                    needPower: samplePower,
+                    needBattery: sampleBattery,
                     includeProcesses: needColdProcs
                 )
             }
 
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                self.applySnapshot(nextSnapshot, isHot: hot)
+                self.applySnapshot(nextSnapshot, mask: mask, isHot: hot)
                 self.isSamplingInFlight = false
             }
         }
     }
 
-    private func applySnapshot(_ next: SystemSnapshot, isHot: Bool) {
+    private func applySnapshot(_ next: SystemSnapshot, mask: SampledMask, isHot: Bool) {
         latestSnapshot = next
 
-        cpuBuffer.append(next.cpu.totalUsagePercent)
-        memoryBuffer.append(next.memory.usedPercent)
-        downloadBuffer.append(next.network.downloadBytesPerSec)
-        uploadBuffer.append(next.network.uploadBytesPerSec)
-
-        if next.siliconPower.isAvailable {
+        // 仅向本轮实际采样的历史缓冲区追加读数，杜绝未采样模块用旧值污染折线图
+        if mask.cpu {
+            cpuBuffer.append(next.cpu.totalUsagePercent)
+        }
+        if mask.memory {
+            memoryBuffer.append(next.memory.usedPercent)
+        }
+        if mask.network {
+            downloadBuffer.append(next.network.downloadBytesPerSec)
+            uploadBuffer.append(next.network.uploadBytesPerSec)
+        }
+        if mask.power && next.siliconPower.isAvailable {
             powerBuffer.append(next.siliconPower.packageWatts)
         }
-        if let temp = next.thermalFan.primaryTemperature {
+        if mask.thermal, let temp = next.thermalFan.primaryTemperature {
             temperatureBuffer.append(temp)
         }
 

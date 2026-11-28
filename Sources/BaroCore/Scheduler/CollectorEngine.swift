@@ -116,27 +116,25 @@ public final class CollectorEngine: @unchecked Sendable {
     }
 
     public func sampleCold(
-        previous: SystemSnapshot,
+        previous: SystemSnapshot = .empty,
         needCPU: Bool,
         needMemory: Bool,
         needDisk: Bool = false,
         needNetwork: Bool,
         needThermal: Bool,
         needPower: Bool,
+        needBattery: Bool = false,
         includeProcesses: Bool = false
     ) -> SystemSnapshot {
-        var next = previous
+        // 每次冷态构建干净快照：未开启采样的模块置为 .empty，绝不残留收起面板前的旧瞬时峰值
+        var next = SystemSnapshot.empty
         next.timestamp = Date()
         next.uptimeSeconds = HostInfoReader.uptimeSeconds()
 
-        // 冷态默认不沿用上一次热态的进程排行，避免菜单栏/健康摘要点名过期 App
         if includeProcesses {
             let procs = cachedOrFreshProcesses(minInterval: 3.0)
             next.topCPUApps = procs.topCPU
             next.topMemoryApps = procs.topMemory
-        } else {
-            next.topCPUApps = []
-            next.topMemoryApps = []
         }
 
         if needCPU {
@@ -154,13 +152,16 @@ public final class CollectorEngine: @unchecked Sendable {
         if needThermal {
             next.thermalFan = thermalFan.sample()
         }
+        if needBattery {
+            next.batteryPower = cachedOrFreshBattery(minInterval: 15.0)
+        }
         if needPower {
             var powerSnap = siliconPower.sample()
             if powerSnap.cpuWatts == 0 && powerSnap.aneWatts == 0 && powerSnap.dramWatts == 0 {
                 if let smcWatts = thermalFan.readSystemPowerWatts() {
                     powerSnap.packageWatts = smcWatts
                 } else {
-                    let batSnap = cachedOrFreshBattery(minInterval: 10.0)
+                    let batSnap = needBattery ? next.batteryPower : cachedOrFreshBattery(minInterval: 10.0)
                     if !batSnap.hasInternalBattery && batSnap.powerWatts > 0 {
                         powerSnap.packageWatts = batSnap.powerWatts
                     }

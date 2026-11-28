@@ -58,6 +58,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             .debounce(for: .milliseconds(80), scheduler: RunLoop.main)
             .sink { [weak self] _ in
                 guard let self else { return }
+                let lang = self.settings.resolvedLanguage
+                self.settingsWindow?.title = BaroL10n.t("Baro 偏好设置", "Baro Preferences", lang: lang)
+                self.aboutWindow?.title = BaroL10n.t("关于 Baro", "About Baro", lang: lang)
                 self.lastMenuBarSignature = ""
                 self.updateStatusCanvas(with: self.coordinator.currentMenuBarRenderData())
                 self.applyGlobalHotKeySetting()
@@ -521,9 +524,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         let lang = settings.resolvedLanguage
         let hosting = NSHostingController(rootView: SettingsView(settings: settings, hotKeyManager: hotKeyManager))
-        let window = NSWindow(contentViewController: hosting)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 460),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hosting
         window.title = BaroL10n.t("Baro 偏好设置", "Baro Preferences", lang: lang)
-        window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
@@ -542,9 +550,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         let lang = settings.resolvedLanguage
         let hosting = NSHostingController(rootView: AboutBaroView(settings: settings))
-        let window = NSWindow(contentViewController: hosting)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = hosting
         window.title = BaroL10n.t("关于 Baro", "About Baro", lang: lang)
-        window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()

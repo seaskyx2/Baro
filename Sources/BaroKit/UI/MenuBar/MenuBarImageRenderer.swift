@@ -497,7 +497,7 @@ public enum MenuBarImageRenderer {
         let freeW = max(dualDiskFreeRefW, measureWidth(freeStr, font: dualValueFont))
         let pctW = max(dualPctRefW, measureWidth(pctStr, font: dualValueFont))
         let topRowW = dualDiskLabelRefW + 2.0 + freeW
-        let bottomRowW = 16.5 + 2.5 + pctW
+        let bottomRowW = 16.5 + 2.0 + pctW
         return max(topRowW, bottomRowW)
     }
 

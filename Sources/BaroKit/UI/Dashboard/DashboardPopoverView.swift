@@ -2,6 +2,26 @@ import BaroCore
 import SwiftUI
 
 public struct DashboardPopoverView: View {
+    private enum CardSlot: Identifiable {
+        case cpu
+        case memory
+        case powerGPU
+        case network
+        case disk
+        case battery
+
+        var id: String {
+            switch self {
+            case .cpu: return "cpu"
+            case .memory: return "memory"
+            case .powerGPU: return "powerGPU"
+            case .network: return "network"
+            case .disk: return "disk"
+            case .battery: return "battery"
+            }
+        }
+    }
+
     @ObservedObject public var coordinator: SamplingCoordinator
     @ObservedObject public var settings: BaroSettings
     public let onOpenSettings: () -> Void
@@ -36,98 +56,38 @@ public struct DashboardPopoverView: View {
         }
     }
 
+    private var activeCards: [CardSlot] {
+        var list: [CardSlot] = []
+        if settings.showCPUCard { list.append(.cpu) }
+        if settings.showMemoryCard { list.append(.memory) }
+        if settings.showPowerGPUCard { list.append(.powerGPU) }
+        if settings.showNetworkCard { list.append(.network) }
+        if settings.showDiskCard { list.append(.disk) }
+        if settings.showBatteryPowerCard { list.append(.battery) }
+        return list
+    }
+
     private func dashboardBody(lang: ResolvedLanguage) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let cards = activeCards
+        let rowCount = (cards.count + 1) / 2
+
+        return VStack(alignment: .leading, spacing: 8) {
             headerSection(lang: lang)
 
-            if settings.showCPUCard || settings.showMemoryCard {
-                twoColumnGrid {
-                    if settings.showCPUCard {
-                        CPUCardView(
-                            cpu: coordinator.snapshot.cpu,
-                            history: coordinator.cpuHistory,
-                            temperature: coordinator.snapshot.thermalFan.cpuTemperature ?? coordinator.snapshot.thermalFan.socTemperature,
-                            lang: lang,
-                            isExpanded: expandedCPU,
-                            onToggleExpand: {
-                                withAnimation(.snappy(duration: 0.22)) {
-                                    expandedCPU.toggle()
-                                }
-                                onLayoutChanged()
-                            }
-                        )
+            ForEach(0..<rowCount, id: \.self) { rowIndex in
+                let firstIdx = rowIndex * 2
+                let secondIdx = firstIdx + 1
+                if secondIdx < cards.count {
+                    HStack(alignment: .top, spacing: 8) {
+                        cardView(for: cards[firstIdx], lang: lang)
+                            .frame(maxWidth: .infinity, alignment: .top)
+                        cardView(for: cards[secondIdx], lang: lang)
+                            .frame(maxWidth: .infinity, alignment: .top)
                     }
-
-                    if settings.showMemoryCard {
-                        MemoryCardView(
-                            memory: coordinator.snapshot.memory,
-                            history: coordinator.memoryHistory,
-                            lang: lang,
-                            isExpanded: expandedMemory,
-                            onToggleExpand: {
-                                withAnimation(.snappy(duration: 0.22)) {
-                                    expandedMemory.toggle()
-                                }
-                                onLayoutChanged()
-                            }
-                        )
-                    }
-                }
-            }
-
-            if settings.showPowerGPUCard || settings.showNetworkCard {
-                twoColumnGrid {
-                    if settings.showPowerGPUCard {
-                        PowerGPUCardView(
-                            power: coordinator.snapshot.siliconPower,
-                            thermal: coordinator.snapshot.thermalFan,
-                            powerHistory: coordinator.powerHistory,
-                            lang: lang,
-                            isExpanded: expandedPower,
-                            onToggleExpand: {
-                                withAnimation(.snappy(duration: 0.22)) {
-                                    expandedPower.toggle()
-                                }
-                                onLayoutChanged()
-                            }
-                        )
-                    }
-
-                    if settings.showNetworkCard {
-                        NetworkCardView(
-                            network: coordinator.snapshot.network,
-                            downloadHistory: coordinator.downloadHistory,
-                            uploadHistory: coordinator.uploadHistory,
-                            lang: lang
-                        )
-                    }
-                }
-            }
-
-            if settings.showDiskCard || settings.showBatteryPowerCard {
-                twoColumnGrid {
-                    if settings.showDiskCard {
-                        DiskCardView(
-                            disk: coordinator.snapshot.disk,
-                            lang: lang,
-                            isExpanded: expandedDisk,
-                            onToggleExpand: {
-                                withAnimation(.snappy(duration: 0.22)) {
-                                    expandedDisk.toggle()
-                                }
-                                onLayoutChanged()
-                            }
-                        )
-                    }
-
-                    if settings.showBatteryPowerCard {
-                        BatteryPowerCardView(
-                            batteryPower: coordinator.snapshot.batteryPower,
-                            sleepBlockers: coordinator.snapshot.sleepBlockers,
-                            previewLaptopMode: settings.previewLaptopBatteryOnDesktop,
-                            lang: lang
-                        )
-                    }
+                } else {
+                    // 奇数落单卡片自动铺满整行，杜绝右侧半边空白
+                    cardView(for: cards[firstIdx], lang: lang)
+                        .frame(maxWidth: .infinity, alignment: .top)
                 }
             }
 
@@ -149,6 +109,80 @@ public struct DashboardPopoverView: View {
         .onChange(of: expandedMemory) { _, _ in onLayoutChanged() }
         .onChange(of: expandedPower) { _, _ in onLayoutChanged() }
         .onChange(of: expandedDisk) { _, _ in onLayoutChanged() }
+        .onChange(of: cards.map(\.id)) { _, _ in onLayoutChanged() }
+    }
+
+    @ViewBuilder
+    private func cardView(for slot: CardSlot, lang: ResolvedLanguage) -> some View {
+        switch slot {
+        case .cpu:
+            CPUCardView(
+                cpu: coordinator.snapshot.cpu,
+                history: coordinator.cpuHistory,
+                temperature: coordinator.snapshot.thermalFan.cpuTemperature ?? coordinator.snapshot.thermalFan.socTemperature,
+                lang: lang,
+                isExpanded: expandedCPU,
+                onToggleExpand: {
+                    withAnimation(.snappy(duration: 0.22)) {
+                        expandedCPU.toggle()
+                    }
+                    onLayoutChanged()
+                }
+            )
+        case .memory:
+            MemoryCardView(
+                memory: coordinator.snapshot.memory,
+                history: coordinator.memoryHistory,
+                lang: lang,
+                isExpanded: expandedMemory,
+                onToggleExpand: {
+                    withAnimation(.snappy(duration: 0.22)) {
+                        expandedMemory.toggle()
+                    }
+                    onLayoutChanged()
+                }
+            )
+        case .powerGPU:
+            PowerGPUCardView(
+                power: coordinator.snapshot.siliconPower,
+                thermal: coordinator.snapshot.thermalFan,
+                powerHistory: coordinator.powerHistory,
+                lang: lang,
+                isExpanded: expandedPower,
+                onToggleExpand: {
+                    withAnimation(.snappy(duration: 0.22)) {
+                        expandedPower.toggle()
+                    }
+                    onLayoutChanged()
+                }
+            )
+        case .network:
+            NetworkCardView(
+                network: coordinator.snapshot.network,
+                downloadHistory: coordinator.downloadHistory,
+                uploadHistory: coordinator.uploadHistory,
+                lang: lang
+            )
+        case .disk:
+            DiskCardView(
+                disk: coordinator.snapshot.disk,
+                lang: lang,
+                isExpanded: expandedDisk,
+                onToggleExpand: {
+                    withAnimation(.snappy(duration: 0.22)) {
+                        expandedDisk.toggle()
+                    }
+                    onLayoutChanged()
+                }
+            )
+        case .battery:
+            BatteryPowerCardView(
+                batteryPower: coordinator.snapshot.batteryPower,
+                sleepBlockers: coordinator.snapshot.sleepBlockers,
+                previewLaptopMode: settings.previewLaptopBatteryOnDesktop,
+                lang: lang
+            )
+        }
     }
 
     private func headerSection(lang: ResolvedLanguage) -> some View {
@@ -229,18 +263,5 @@ public struct DashboardPopoverView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 2)
-    }
-
-    @ViewBuilder
-    private func twoColumnGrid<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: 8, alignment: .top),
-                GridItem(.flexible(), spacing: 8, alignment: .top)
-            ],
-            spacing: 8
-        ) {
-            content()
-        }
     }
 }

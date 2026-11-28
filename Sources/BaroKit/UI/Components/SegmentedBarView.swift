@@ -13,12 +13,13 @@ public struct ThinProgressBar: View {
 
     public var body: some View {
         GeometryReader { geo in
+            let safeWidth = max(0, geo.size.width)
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(Color.primary.opacity(0.10))
                 Capsule()
                     .fill(tint)
-                    .frame(width: max(ratio > 0 ? height : 0, geo.size.width * ratio))
+                    .frame(width: min(safeWidth, max(ratio > 0 ? min(height, safeWidth) : 0, safeWidth * ratio)))
                     .animation(.easeOut(duration: 0.25), value: ratio)
             }
         }
@@ -49,13 +50,15 @@ public struct SegmentedBarView: View {
 
     public var body: some View {
         GeometryReader { geo in
-            let totalWidth = geo.size.width
+            let visibleCount = segments.filter { $0.ratio > 0.005 }.count
+            let gapSum = CGFloat(max(0, visibleCount - 1)) * 1.0
+            let usableWidth = max(0, geo.size.width - gapSum)
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(Color.primary.opacity(0.10))
                 HStack(spacing: 1) {
                     ForEach(segments) { seg in
-                        let segWidth = max(0, totalWidth * min(1.0, seg.ratio))
+                        let segWidth = max(0, usableWidth * min(1.0, seg.ratio))
                         if segWidth > 0.5 {
                             Rectangle()
                                 .fill(seg.color)

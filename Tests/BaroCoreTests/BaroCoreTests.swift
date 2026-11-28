@@ -35,6 +35,10 @@ final class BaroCoreTests: XCTestCase {
         XCTAssertEqual(ByteFormatter.compactDiskSize(38_400_000_000), "38.4G")
         XCTAssertEqual(ByteFormatter.compactDiskSize(245_000_000_000), "245G")
         XCTAssertEqual(ByteFormatter.compactDiskSize(1_420_000_000_000), "1.42T")
+        // 进位临界点防跳变验证
+        XCTAssertEqual(ByteFormatter.compactDiskSize(99_960_000_000), "100G")
+        XCTAssertEqual(ByteFormatter.compactDiskSize(999_600_000_000), "1.00T")
+        XCTAssertEqual(ByteFormatter.compactRate(999.6 * 1_024), "1.0M")
         XCTAssertEqual(ByteFormatter.uptime(3 * 86_400 + 14 * 3_600), "3d 14h")
     }
 
@@ -287,8 +291,8 @@ final class BaroCoreTests: XCTestCase {
         XCTAssertTrue(pids.contains(ProcessInfo.processInfo.processIdentifier))
     }
 
-    /// 回归：冷态不得沿用上一次热态的进程排行
-    func testColdSampleDropsStaleTopApps() {
+    /// 回归：冷态不得沿用上一次热态的进程排行或未采样模块的旧峰值（如旧高温/旧高网速）
+    func testColdSampleDropsStaleTopAppsAndUnsampledPeaks() {
         var prev = SystemSnapshot.empty
         let stale = AggregatedAppUsage(
             id: "app:Stale",
@@ -301,6 +305,23 @@ final class BaroCoreTests: XCTestCase {
         )
         prev.topCPUApps = [stale]
         prev.topMemoryApps = [stale]
+        prev.thermalFan = ThermalFanSnapshot(
+            socTemperature: 95.0,
+            cpuTemperature: 95.0,
+            gpuTemperature: nil,
+            ssdTemperature: nil,
+            sensors: [],
+            fans: []
+        )
+        prev.network = NetworkSnapshot(
+            downloadBytesPerSec: 25_000_000,
+            uploadBytesPerSec: 5_000_000,
+            sessionDownloadBytes: 100,
+            sessionUploadBytes: 100,
+            primaryInterface: "en0",
+            localIPAddress: "10.0.0.2",
+            isConnected: true
+        )
         let next = CollectorEngine().sampleCold(
             previous: prev,
             needCPU: false,
@@ -311,6 +332,9 @@ final class BaroCoreTests: XCTestCase {
         )
         XCTAssertTrue(next.topCPUApps.isEmpty)
         XCTAssertTrue(next.topMemoryApps.isEmpty)
+        XCTAssertNil(next.thermalFan.primaryTemperature)
+        XCTAssertEqual(next.network.downloadBytesPerSec, 0)
+        XCTAssertEqual(HealthAnalyzer.analyze(snapshot: next).level, .calm)
     }
 
     /// 回归：面板收起时导出的快照必须带有效结构与核心读数
